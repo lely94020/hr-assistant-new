@@ -1,0 +1,246 @@
+M3 - 智能简历筛选模块
+一、模块概述
+项目	说明
+模块编号	M3
+模块名称	智能简历筛选
+优先级	P0（核心AI模块）
+核心技术	Milvus向量检索、LangChain、RAG
+关联模块	M1岗位管理、M2简历管理
+1.1 模块定位
+智能简历筛选是本项目的核心AI功能模块，利用向量检索技术实现基于语义的简历与岗位智能匹配。
+1.2 技术亮点
+● 向量语义检索：使用Milvus进行高性能向量相似度搜索
+● RAG增强：检索结果结合LLM生成匹配分析报告
+● 多维度匹配：不仅看关键词，更看语义相关性
+
+二、功能清单
+功能编号	功能名称	功能描述	优先级
+M3-F1	岗位匹配筛选	选择岗位，自动匹配最相关简历	P0
+M3-F2	自定义条件筛选	输入自定义要求进行筛选	P1
+M3-F3	匹配度评分	显示每份简历与岗位的匹配度分数	P0
+M3-F4	匹配分析报告	AI生成简历与岗位的匹配分析	P0
+M3-F5	批量标记	批量标记简历通过/不通过	P1
+
+三、功能详细说明
+3.1 M3-F1 岗位匹配筛选
+功能描述： 选择目标岗位，系统自动从简历库中检索最匹配的候选人。
+筛选流程：
+
+输入参数：
+参数	类型	必填	说明
+position_id	Long	是	目标岗位ID
+top_n	Integer	否	返回数量，默认10，范围5-50
+min_education	String	否	最低学历要求
+min_work_years	Integer	否	最少工作年限
+required_skills	Array	否	必须具备的技能
+输出内容：
+字段	说明
+resume_id	简历ID
+candidate_name	候选人姓名
+match_score	匹配度分数（0-100）
+similarity	向量相似度（0-1）
+recommendation	推荐等级
+match_analysis	匹配分析详情
+
+3.2 M3-F2 自定义条件筛选
+功能描述： HR输入自定义的筛选要求，进行智能检索。
+使用场景：
+● 岗位JD信息不完整时
+● 需要特定条件的候选人
+● 临时性筛选需求
+输入示例：
+"我需要一位有5年以上微服务开发经验的Java工程师，
+最好有电商或金融行业背景，熟悉高并发系统设计"
+处理流程：
+1. 将自定义描述向量化
+2. 在Milvus中检索相似简历
+3. 生成匹配分析
+
+3.3 M3-F3 匹配度评分
+评分算法：
+最终匹配分数 = 向量相似度分数 * 0.6 + 条件匹配分数 * 0.4
+
+向量相似度分数 = cosine_similarity * 100
+
+条件匹配分数 = (学历匹配 + 年限匹配 + 技能匹配) / 3
+匹配等级划分：
+分数范围	推荐等级	显示颜色
+85-100	强烈推荐	绿色
+70-84	推荐	蓝色
+55-69	一般	灰色
+0-54	不推荐	-
+
+3.4 M3-F4 匹配分析报告
+功能描述： 使用LangChain生成每份简历的详细匹配分析。
+分析内容：
+分析项	说明
+匹配优势	候选人符合岗位要求的优势点（3-5条）
+匹配短板	候选人可能的不足或需要考察的点（2-3条）
+综合评语	100字左右的综合评价
+面试建议	建议重点考察的方向
+AI分析Prompt：
+请分析以下候选人与目标岗位的匹配程度：
+
+【目标岗位】
+岗位名称：{position_name}
+岗位职责：{job_description}
+任职要求：{requirements}
+
+【候选人信息】
+姓名：{candidate_name}
+学历：{education} - {school}
+工作年限：{work_years}年
+当前职位：{current_position} @ {current_company}
+技能：{skills}
+简历摘要：{resume_summary}
+
+请按以下格式返回分析结果：
+{
+    "match_advantages": ["优势1", "优势2", "优势3"],
+    "match_weaknesses": ["短板1", "短板2"],
+    "overall_comment": "综合评语（100字）",
+    "interview_suggestions": ["建议考察方向1", "建议考察方向2"]
+}
+
+3.5 M3-F5 批量标记
+功能描述： HR可以批量标记简历的筛选结果。
+标记选项：
+● 通过初筛
+● 不通过
+● 待定
+业务规则：
+● 标记"通过初筛"后，简历状态变更为"初筛通过"
+● 标记"不通过"后，简历状态变更为"已淘汰"
+
+四、向量检索技术详解
+4.1 Milvus检索流程
+from pymilvus import Collection, connections
+
+# 1. 连接Milvus
+connections.connect("default", host="localhost", port="19530")
+
+# 2. 获取Collection
+collection = Collection("resume_vectors")
+collection.load()
+
+# 3. 准备查询向量（JD向量化）
+jd_text = f"{job_description}\n{requirements}"
+query_vector = embedding_model.embed(jd_text)
+
+# 4. 执行向量检索
+search_params = {
+    "metric_type": "COSINE",  # 余弦相似度
+    "params": {"nprobe": 10}
+}
+
+results = collection.search(
+    data=[query_vector],
+    anns_field="embedding",
+    param=search_params,
+    limit=top_n,
+    output_fields=["resume_id"]
+)
+
+# 5. 获取检索结果
+matched_resumes = []
+for hits in results:
+    for hit in hits:
+        matched_resumes.append({
+            "resume_id": hit.entity.get("resume_id"),
+            "similarity": hit.score
+        })
+4.2 相似度计算
+使用余弦相似度（Cosine Similarity）作为匹配度量：
+similarity = cos(A, B) = (A · B) / (||A|| × ||B||)
+
+其中：
+- A：岗位JD向量
+- B：简历向量
+- 值域：[-1, 1]，越接近1越相似
+
+五、接口设计
+5.1 接口清单
+接口名称	方法	路径	说明
+岗位匹配筛选	POST	/api/v1/screening/match	根据岗位匹配简历
+自定义筛选	POST	/api/v1/screening/custom	自定义条件筛选
+获取匹配分析	GET	/api/v1/screening/analysis/{resumeId}	获取单份简历匹配分析
+批量标记	POST	/api/v1/screening/batch-mark	批量标记筛选结果
+5.2 接口详细定义
+5.2.1 岗位匹配筛选
+POST /api/v1/screening/match
+Content-Type: application/json
+
+Request Body:
+{
+    "position_id": 1,
+    "top_n": 10,
+    "filters": {
+        "min_education": "本科",
+        "min_work_years": 3,
+        "required_skills": ["Java", "Spring"]
+    }
+}
+
+Response 200:
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "position": {
+            "id": 1,
+            "name": "高级Java开发工程师"
+        },
+        "total_matched": 10,
+        "results": [
+            {
+                "resume_id": 101,
+                "candidate_name": "张三",
+                "education": "本科",
+                "work_years": 5,
+                "current_position": "Java工程师",
+                "match_score": 92,
+                "similarity": 0.89,
+                "recommendation": "强烈推荐",
+                "match_analysis": {
+                    "match_advantages": [
+                        "5年Java开发经验，符合要求",
+                        "有微服务架构实战经验",
+                        "技术栈高度匹配"
+                    ],
+                    "match_weaknesses": [
+                        "缺乏金融行业背景"
+                    ],
+                    "overall_comment": "该候选人技术能力扎实，经验丰富，与岗位要求高度匹配...",
+                    "interview_suggestions": [
+                        "重点考察系统设计能力",
+                        "了解离职原因"
+                    ]
+                }
+            }
+        ]
+    }
+}
+5.2.2 自定义筛选
+POST /api/v1/screening/custom
+Content-Type: application/json
+
+Request Body:
+{
+    "query": "需要有5年以上微服务开发经验的Java工程师，熟悉高并发系统设计",
+    "top_n": 10
+}
+
+Response 200:
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "query": "...",
+        "total_matched": 8,
+        "results": [...]
+    }
+}
+
+六、关联页面
+页面	说明
+P08-智能筛选页	智能筛选功能页面

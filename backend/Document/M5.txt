@@ -1,0 +1,190 @@
+M5 - 录音管理模块
+一、模块概述
+项目	说明
+模块编号	M5
+模块名称	面试录音管理
+优先级	P0
+核心技术	语音识别（Qwen3-ASR-Flash）
+关联模块	M2简历管理、M6面试摘要、M7面试评价
+1.1 模块定位
+管理面试录音文件，核心功能是将语音转换为文字，为后续摘要提取和智能评价提供数据基础。
+1.2 技术亮点
+● 语音识别：使用Qwen3-ASR-Flash阿里云语音大模型
+● 长音频处理：支持1小时以上的面试录音
+● 文字校对：支持人工修正识别错误
+
+二、功能清单
+功能编号	功能名称	功能描述	优先级
+M5-F1	上传录音	上传面试录音文件（MP3/WAV/M4A）	P0
+M5-F2	语音转文字	自动将录音转换为文字	P0
+M5-F3	录音列表	展示录音列表	P0
+M5-F4	播放录音	在线播放录音	P1
+M5-F5	查看文字稿	查看转换后的文字内容	P0
+M5-F6	编辑文字稿	手动修正转换错误	P1
+M5-F7	关联候选人	将录音关联到候选人	P0
+M5-F8	删除录音	删除录音及文字稿	P0
+
+三、功能详细说明
+3.1 M5-F1 上传录音
+支持格式：
+格式	扩展名	最大大小	说明
+MP3	.mp3	200MB	最常见格式
+WAV	.wav	500MB	无损格式
+M4A	.m4a	200MB	苹果设备常用
+AAC	.aac	200MB	高压缩比
+上传参数：
+参数	类型	必填	说明
+file	File	是	音频文件
+resume_id	Long	是	关联候选人ID
+position_id	Long	否	关联岗位ID
+interview_date	Date	否	面试日期
+interviewer	String	否	面试官姓名
+
+3.2 M5-F2 语音转文字
+转写流程：
+
+转写状态：
+状态值	状态名称	说明
+0	未转写	刚上传，未开始转写
+1	转写中	正在进行语音识别
+2	已完成	转写成功
+3	转写失败	转写过程出错
+
+3.3 语音识别技术方案
+本项目采用 Qwen3-ASR-Flash 阿里云语音识别大模型。
+模型特性：
+特性	说明
+模型名称	Qwen3-ASR-Flash
+调用方式	阿里云 DashScope API
+支持格式	mp3/wav/m4a/flac等主流音频格式
+支持语言	中文、英文及中英混合
+响应速度	流式输出，实时返回识别结果
+集成示例：
+import dashscope
+from dashscope.audio.asr import Transcription
+
+# 配置API Key
+dashscope.api_key = "your_dashscope_api_key"
+
+def transcribe_audio(file_path: str) -> str:
+    """转写音频文件"""
+    task = Transcription.async_call(
+        model='qwen3-asr-flash',
+        file_urls=[file_path],
+        language_hints=['zh', 'en']
+    )
+    # 等待转写完成
+    result = Transcription.wait(task.output.task_id)
+    return result.output.results[0].transcription_text
+
+# 使用示例
+transcript = transcribe_audio("interview.mp3")
+
+四、数据模型
+4.1 面试录音表（interview_recording）
+字段名	类型	必填	说明
+id	BIGINT	是	主键ID
+resume_id	BIGINT	是	关联简历/候选人ID
+position_id	BIGINT	否	关联岗位ID
+file_name	VARCHAR(200)	是	原始文件名
+file_path	VARCHAR(500)	是	文件存储路径
+file_type	VARCHAR(10)	是	文件类型
+file_size	BIGINT	是	文件大小(字节)
+duration	INT	否	录音时长(秒)
+transcript	LONGTEXT	否	转换后的文字稿
+transcript_status	TINYINT	是	转写状态
+transcript_error	VARCHAR(500)	否	转写失败原因
+interviewer	VARCHAR(50)	否	面试官
+interview_date	DATE	否	面试日期
+created_at	DATETIME	是	创建时间
+updated_at	DATETIME	是	更新时间
+4.2 SQL建表语句
+CREATE TABLE interview_recording (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    resume_id BIGINT NOT NULL COMMENT '关联简历ID',
+    position_id BIGINT DEFAULT NULL COMMENT '关联岗位ID',
+    file_name VARCHAR(200) NOT NULL COMMENT '文件名',
+    file_path VARCHAR(500) NOT NULL COMMENT '存储路径',
+    file_type VARCHAR(10) NOT NULL COMMENT '文件类型',
+    file_size BIGINT NOT NULL COMMENT '文件大小',
+    duration INT DEFAULT NULL COMMENT '时长(秒)',
+    transcript LONGTEXT DEFAULT NULL COMMENT '文字稿',
+    transcript_status TINYINT NOT NULL DEFAULT 0 COMMENT '转写状态',
+    transcript_error VARCHAR(500) DEFAULT NULL COMMENT '转写错误',
+    interviewer VARCHAR(50) DEFAULT NULL COMMENT '面试官',
+    interview_date DATE DEFAULT NULL COMMENT '面试日期',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_resume (resume_id),
+    INDEX idx_status (transcript_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='面试录音表';
+
+五、接口设计
+5.1 接口清单
+接口名称	方法	路径	说明
+上传录音	POST	/api/v1/recordings/upload	上传录音文件
+获取录音列表	GET	/api/v1/recordings	获取录音列表
+获取录音详情	GET	/api/v1/recordings/{id}	获取录音详情
+开始转写	POST	/api/v1/recordings/{id}/transcribe	开始语音转文字
+获取转写状态	GET	/api/v1/recordings/{id}/status	查询转写状态
+获取文字稿	GET	/api/v1/recordings/{id}/transcript	获取文字稿
+更新文字稿	PUT	/api/v1/recordings/{id}/transcript	编辑文字稿
+删除录音	DELETE	/api/v1/recordings/{id}	删除录音
+5.2 接口详细定义
+5.2.1 上传录音
+POST /api/v1/recordings/upload
+Content-Type: multipart/form-data
+
+Form Data:
+- file: 音频文件
+- resume_id: 101
+- position_id: 1 (可选)
+- interview_date: 2024-01-15 (可选)
+- interviewer: 张面试官 (可选)
+
+Response 200:
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "id": 501,
+        "file_name": "面试录音_张三_20240115.mp3",
+        "duration": 2700,
+        "duration_text": "45:00",
+        "transcript_status": 0,
+        "transcript_status_name": "未转写"
+    }
+}
+5.2.2 开始转写
+POST /api/v1/recordings/501/transcribe
+
+Response 200:
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "id": 501,
+        "transcript_status": 1,
+        "transcript_status_name": "转写中",
+        "estimated_time": "约5分钟"
+    }
+}
+5.2.3 获取文字稿
+GET /api/v1/recordings/501/transcript
+
+Response 200:
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "id": 501,
+        "transcript_status": 2,
+        "transcript": "面试官：你好，请先自我介绍一下。\n\n候选人：您好，我叫张三，目前在阿里巴巴担任高级Java工程师...\n\n面试官：好的，你在简历中提到有微服务架构经验，能详细说说吗？\n\n候选人：...",
+        "word_count": 5680,
+        "updated_at": "2024-01-15 15:30:00"
+    }
+}
+
+六、关联页面
+页面	说明
+P10-录音管理页	录音管理功能页面

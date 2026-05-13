@@ -1,0 +1,22 @@
+# 依赖文件夹
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# 上传文件和数据
+backend/uploads/
+*.db
+*.sqlite
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 环境文件
+.env
+.venv/
+venv/
+
+# IDE 配置
+.vscode/
+.idea/

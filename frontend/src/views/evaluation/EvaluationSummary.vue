@@ -8,7 +8,7 @@
     </el-breadcrumb>
 
     <!-- 1. 顶部信息栏卡片 -->
-    <el-card class="top-info-card" shadow="never">
+    <el-card class="top-info-card" shadow="never" v-loading="loading">
       <div class="left-info">
         <h1 class="candidate-name">{{ summaryInfo.candidateName }}</h1>
         <el-tag type="primary" size="large" class="position-tag">
@@ -17,18 +17,22 @@
       </div>
       <div class="right-info">
         <div class="info-item">
-          <span class="label">面试日期：</span>
+          <span class="label">面试时间：</span>
           <span class="value">{{ summaryInfo.interviewDate }}</span>
         </div>
         <div class="info-item">
-          <span class="label">面试时长：</span>
+          <span class="label">面试官：</span>
+          <span class="value">{{ summaryInfo.interviewer }}</span>
+        </div>
+        <div class="info-item">
+          <span class="label">时长：</span>
           <span class="value">{{ summaryInfo.duration }}</span>
         </div>
       </div>
     </el-card>
 
     <!-- 2. 主内容区卡片列表 -->
-    <div class="content-wrapper">
+    <div class="content-wrapper" v-loading="loading">
       <!-- 卡片1：面试概要 -->
       <el-card class="content-card" shadow="never">
         <div class="card-header">
@@ -59,7 +63,7 @@
           />
           <div class="edit-buttons">
             <el-button size="small" @click="cancelEdit">取消</el-button>
-            <el-button size="small" type="primary" @click="saveSummary">保存</el-button>
+            <el-button size="small" type="primary" @click="saveSummary" :loading="saving">保存</el-button>
           </div>
         </div>
       </el-card>
@@ -79,16 +83,17 @@
               <span class="question">Q: {{ item.question }}</span>
             </template>
             <div class="answer-box">
-              <p class="answer">A: {{ item.answer }}</p>
+              <p class="answer">A: {{ item.answer_summary }}</p>
               <div class="quality">
                 <span>回答质量：</span>
-                <el-tag :type="item.qualityType" size="small">
-                  {{ item.qualityText }}
+                <el-tag :type="getQualityTagType(item.answer_quality)" size="small">
+                  {{ item.answer_quality }}
                 </el-tag>
               </div>
             </div>
           </el-collapse-item>
         </el-collapse>
+        <el-empty v-if="summaryInfo.qaList.length === 0" description="暂无核心问答" />
       </el-card>
 
       <!-- 卡片3：能力标签 -->
@@ -107,6 +112,7 @@
             >
               {{ tag }}
             </el-tag>
+            <span v-if="summaryInfo.techSkills.length === 0" class="empty-text">暂无数据</span>
           </div>
           <div class="tag-group mt-16">
             <span class="group-title">软技能：</span>
@@ -118,6 +124,7 @@
             >
               {{ tag }}
             </el-tag>
+            <span v-if="summaryInfo.softSkills.length === 0" class="empty-text">暂无数据</span>
           </div>
         </div>
       </el-card>
@@ -134,12 +141,13 @@
                 <el-icon color="#67c23a" size="18"><Check /></el-icon>
                 <span>亮点</span>
               </div>
-              <ul class="list">
+              <ul class="list" v-if="summaryInfo.advantages.length > 0">
                 <li v-for="(item, index) in summaryInfo.advantages" :key="index">
                   <el-icon color="#67c23a" size="14" class="mr-8"><Check /></el-icon>
                   {{ item }}
                 </li>
               </ul>
+              <el-empty v-else description="暂无亮点" :image-size="60" />
             </div>
           </el-col>
           <el-col :span="12">
@@ -148,12 +156,13 @@
                 <el-icon color="#e6a23c" size="18"><Warning /></el-icon>
                 <span>疑虑点</span>
               </div>
-              <ul class="list">
+              <ul class="list" v-if="summaryInfo.concerns.length > 0">
                 <li v-for="(item, index) in summaryInfo.concerns" :key="index">
                   <el-icon color="#e6a23c" size="14" class="mr-8"><Warning /></el-icon>
                   {{ item }}
                 </li>
               </ul>
+              <el-empty v-else description="暂无疑虑" :image-size="60" />
             </div>
           </el-col>
         </el-row>
@@ -173,7 +182,7 @@
             {{ index + 1 }}. {{ item }}
           </div>
         </div>
-        <div v-else class="empty-tip">候选人未提问</div>
+        <el-empty v-else description="候选人未提问" />
       </el-card>
     </div>
 
@@ -181,8 +190,8 @@
     <div class="float-operate">
       <el-card shadow="never" class="float-card">
         <div class="btn-group">
-          <el-button block @click="regenerateSummary">重新生成摘要</el-button>
-          <el-button block type="primary" class="mt-8">生成评价</el-button>
+          <el-button block @click="regenerateSummary" :loading="regenerating">重新生成摘要</el-button>
+          <el-button block type="primary" class="mt-8" @click="goToEvaluation">生成评价</el-button>
           <el-button block class="mt-8" @click="goBackRecord">返回录音</el-button>
         </div>
       </el-card>
@@ -191,16 +200,29 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Edit,
   Check,
-  Warning,
-  Refresh,
-  Document,
-  Back
+  Warning
 } from '@element-plus/icons-vue'
+import {
+  getSummaryByRecordingId,
+  updateSummary,
+  regenerateSummary as regenerateSummaryApi
+} from '@/api/summary'
+import { getRecordingDetail } from '@/api/recording'
+import { getResumeDetail } from '@/api/resume'
+
+const route = useRoute()
+const router = useRouter()
+
+// 加载状态
+const loading = ref(false)
+const saving = ref(false)
+const regenerating = ref(false)
 
 // 编辑状态
 const editMode = ref(false)
@@ -208,43 +230,136 @@ const editTarget = ref('')
 const editSummary = ref('')
 const activeCollapse = ref([0])
 
-// 面试摘要数据（Mock）
+// 摘要ID（用于更新）
+const summaryId = ref(null)
+
+// 面试摘要数据
 const summaryInfo = reactive({
-  candidateName: '张三',
-  positionName: '高级前端开发工程师',
-  interviewDate: '2025-01-20 14:00-15:30',
-  duration: '1小时30分钟',
-  summary: '本次面试主要考察候选人的前端技术栈、项目经验和解决问题的能力。候选人拥有5年前端开发经验，熟练掌握Vue3、React、TypeScript等核心技术，具备大型企业级项目开发经验。技术基础扎实，对前端工程化、性能优化有深入理解。沟通能力良好，逻辑思维清晰，符合岗位核心要求。在微前端架构和低代码平台方面有实践经验，是岗位的优质候选人。',
-  // 核心问答
-  qaList: [
-    {
-      question: '请详细介绍Vue3的响应式原理？',
-      answer: 'Vue3基于Proxy实现数据劫持，相比Vue2的Object.defineProperty，支持监听数组、新增属性，性能更高。在初始化时创建响应式对象，收集依赖，数据变化时触发更新。',
-      qualityType: 'success',
-      qualityText: '优秀'
-    },
-    {
-      question: '项目中遇到的最大性能问题是什么，如何解决的？',
-      answer: '遇到过首屏加载过慢的问题，通过路由懒加载、代码分割、图片懒加载、开启gzip压缩等方式优化，首屏加载速度提升60%。',
-      qualityType: 'primary',
-      qualityText: '良好'
-    },
-    {
-      question: '如何理解前端工程化？',
-      answer: '前端工程化是指用工程化的思想管理前端项目，包括模块化、组件化、规范化、自动化，提升开发效率和代码质量。',
-      qualityType: 'info',
-      qualityText: '一般'
-    }
-  ],
-  // 能力标签
-  techSkills: ['Vue3', 'React', 'TypeScript', 'Vite', '性能优化'],
-  softSkills: ['沟通能力强', '逻辑清晰', '学习能力强', '团队协作'],
-  // 亮点与疑虑
-  advantages: ['5年大厂前端经验', '技术栈全面', '项目经验丰富', '沟通能力优秀'],
-  concerns: ['微前端经验不足', '低代码平台实践较少'],
-  // 候选人提问
-  questions: ['公司的技术栈规划是什么？', '岗位的晋升机制是怎样的？']
+  candidateName: '-',
+  positionName: '-',
+  interviewDate: '-',
+  interviewer: '-',
+  duration: '-',
+  summary: '',
+  qaList: [],
+  techSkills: [],
+  softSkills: [],
+  advantages: [],
+  concerns: [],
+  questions: []
 })
+
+// 获取质量标签类型
+const getQualityTagType = (quality) => {
+  const typeMap = {
+    '优秀': 'success',
+    '良好': 'primary',
+    '一般': 'info',
+    '较差': 'danger'
+  }
+  return typeMap[quality] || 'info'
+}
+
+// 格式化日期
+const formatDate = (dateStr) => {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+// 格式化时长
+const formatDuration = (seconds) => {
+  if (!seconds) return '-'
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+
+  if (hours > 0) {
+    return `${hours}小时${minutes}分钟`
+  }
+  return `${minutes}分钟`
+}
+
+// 加载摘要数据
+const loadSummary = async () => {
+  const recordingId = route.params.recordingId || route.query.recordingId
+
+  if (!recordingId) {
+    ElMessage.error('缺少录音ID参数')
+    return
+  }
+
+  loading.value = true
+  try {
+    // 获取录音详情
+    const recordingRes = await getRecordingDetail(recordingId)
+
+    // 填充录音信息
+    if (recordingRes) {
+      // 格式化面试时间
+      summaryInfo.interviewDate = recordingRes.interview_date
+        ? formatDate(recordingRes.interview_date)
+        : '-'
+
+      // 面试官
+      summaryInfo.interviewer = recordingRes.interviewer || '-'
+
+      // 格式化时长
+      summaryInfo.duration = formatDuration(recordingRes.duration)
+
+      // 获取简历信息（如果有resume_id）
+      if (recordingRes.resume_id) {
+        try {
+          const resumeRes = await getResumeDetail(recordingRes.resume_id)
+          if (resumeRes) {
+            summaryInfo.candidateName = resumeRes.candidate_name || '-'
+          }
+        } catch (error) {
+          console.error('获取简历信息失败:', error)
+        }
+      }
+
+      // 获取岗位信息（如果有position_id）
+      if (recordingRes.position_id) {
+        // 这里可以调用获取岗位详情的API
+        // 暂时显示岗位ID
+        summaryInfo.positionName = `岗位ID: ${recordingRes.position_id}`
+      }
+    }
+
+    // 获取摘要信息
+    const summaryRes = await getSummaryByRecordingId(recordingId).catch(() => null)
+
+    // 填充摘要信息
+    if (summaryRes) {
+      summaryId.value = summaryRes.id
+      summaryInfo.summary = summaryRes.summary_overview || ''
+      summaryInfo.qaList = summaryRes.key_qa || []
+      summaryInfo.techSkills = summaryRes.technical_skills || []
+      summaryInfo.softSkills = summaryRes.soft_skills || []
+
+      // 将字符串转换为数组（后端存储为换行分隔的字符串）
+      summaryInfo.advantages = summaryRes.highlights
+        ? summaryRes.highlights.split('\n').filter(item => item.trim())
+        : []
+      summaryInfo.concerns = summaryRes.concerns
+        ? summaryRes.concerns.split('\n').filter(item => item.trim())
+        : []
+      summaryInfo.questions = summaryRes.candidate_questions
+        ? summaryRes.candidate_questions.split('\n').filter(item => item.trim())
+        : []
+    } else {
+      ElMessage.warning('尚未生成面试摘要，请点击"重新生成摘要"')
+    }
+  } catch (error) {
+    console.error('加载摘要失败:', error)
+    ElMessage.error('加载摘要失败')
+  } finally {
+    loading.value = false
+  }
+}
 
 // 打开编辑
 const openEdit = (target) => {
@@ -260,22 +375,83 @@ const cancelEdit = () => {
 }
 
 // 保存概要
-const saveSummary = () => {
-  summaryInfo.summary = editSummary.value
-  editMode.value = false
-  editTarget.value = ''
-  ElMessage.success('概要保存成功')
+const saveSummary = async () => {
+  if (!summaryId.value) {
+    ElMessage.error('摘要ID不存在')
+    return
+  }
+
+  saving.value = true
+  try {
+    await updateSummary(summaryId.value, {
+      summary_overview: editSummary.value
+    })
+
+    summaryInfo.summary = editSummary.value
+    editMode.value = false
+    editTarget.value = ''
+    ElMessage.success('概要保存成功')
+  } catch (error) {
+    console.error('保存失败:', error)
+    ElMessage.error('保存失败')
+  } finally {
+    saving.value = false
+  }
 }
 
 // 重新生成摘要
-const regenerateSummary = () => {
-  ElMessage.success('AI正在重新生成面试摘要...')
+const regenerateSummary = async () => {
+  const recordingId = route.params.recordingId || route.query.recordingId
+
+  if (!recordingId) {
+    ElMessage.error('缺少录音ID参数')
+    return
+  }
+
+  regenerating.value = true
+  try {
+    const res = await regenerateSummaryApi(summaryId.value || recordingId)
+
+    // 更新本地数据
+    summaryId.value = res.id
+    summaryInfo.summary = res.summary_overview || ''
+    summaryInfo.qaList = res.key_qa || []
+    summaryInfo.techSkills = res.technical_skills || []
+    summaryInfo.softSkills = res.soft_skills || []
+    summaryInfo.advantages = res.highlights
+      ? res.highlights.split('\n').filter(item => item.trim())
+      : []
+    summaryInfo.concerns = res.concerns
+      ? res.concerns.split('\n').filter(item => item.trim())
+      : []
+    summaryInfo.questions = res.candidate_questions
+      ? res.candidate_questions.split('\n').filter(item => item.trim())
+      : []
+
+    ElMessage.success('摘要重新生成成功')
+  } catch (error) {
+    console.error('重新生成失败:', error)
+    ElMessage.error('重新生成摘要失败')
+  } finally {
+    regenerating.value = false
+  }
+}
+
+// 跳转到评价页面
+const goToEvaluation = () => {
+  const recordingId = route.params.recordingId || route.query.recordingId
+  router.push(`/evaluation/evaluation-form?recordingId=${recordingId}`)
 }
 
 // 返回录音页面
 const goBackRecord = () => {
-  ElMessage.success('返回面试录音管理页面')
+  router.back()
 }
+
+// 组件挂载时加载数据
+onMounted(() => {
+  loadSummary()
+})
 </script>
 
 <style scoped>
@@ -325,10 +501,13 @@ const goBackRecord = () => {
 
 .info-item {
   font-size: 14px;
+  display: flex;
+  align-items: center;
 }
 
 .info-item .label {
   color: #606266;
+  min-width: 70px;
 }
 
 .info-item .value {
@@ -425,6 +604,11 @@ const goBackRecord = () => {
   font-weight: 500;
   color: #303133;
   margin-right: 12px;
+}
+
+.empty-text {
+  color: #909399;
+  font-size: 14px;
 }
 
 /* 亮点与疑虑 */

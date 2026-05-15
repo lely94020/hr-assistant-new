@@ -58,6 +58,12 @@ const routes = [
     meta: { title: '面试评价', requiresAuth: true }
   },
   {
+    path: '/evaluation/summary/:recordingId',
+    component: () => import('@/views/evaluation/EvaluationSummary.vue'),
+    meta: { title: '面试摘要', requiresAuth: true },
+    props: true
+  },
+  {
     path: '/',
     redirect: '/login'
   }

@@ -60,8 +60,14 @@ const routes = [
       },
       {
         path: '/evaluation',
-        component: () => import('@/views/evaluation/Evaluation.vue'),
+        component: () => import('@/views/evaluation/EvaluationList.vue'),
         meta: { title: '面试评价', requiresAuth: true }
+      },
+      {
+        path: '/evaluation/detail/:id',
+        component: () => import('@/views/evaluation/EvaluationDetail.vue'),
+        meta: { title: '评价详情', requiresAuth: true },
+        props: true
       },
       {
         path: '/evaluation/summary/:recordingId',

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 
 from app.db.database import get_db
 from app.services.interview_evaluation_service import generate_interview_evaluation
@@ -11,6 +12,8 @@ from app.crud.interview_evaluation import (
     update_hr_comment
 )
 from app.crud.resume import get_resume
+from app.models.interview_evaluation import InterviewEvaluation
+from app.models.resume import Resume
 from app.schemas.interview_evaluation import (
     GenerateEvaluationRequest,
     InterviewEvaluationResponse,
@@ -63,6 +66,133 @@ def format_evaluation_response(evaluation) -> dict:
         "created_at": evaluation.created_at,
         "updated_at": evaluation.updated_at
     }
+
+
+def get_level_from_score(score: float) -> str:
+    """根据分数获取推荐等级"""
+    if score >= 90:
+        return "强烈推荐"
+    elif score >= 75:
+        return "推荐"
+    elif score >= 60:
+        return "可考虑"
+    else:
+        return "不推荐"
+
+
+@router.get("", summary="获取面试评价列表")
+def get_evaluation_list(
+    keyword: Optional[str] = Query(None, description="候选人姓名搜索"),
+    position: Optional[str] = Query(None, description="岗位筛选"),
+    level: Optional[str] = Query(None, description="等级筛选"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(10, ge=1, le=100, description="每页条数"),
+    db: Session = Depends(get_db)
+):
+    """获取面试评价列表（支持搜索和筛选）"""
+    try:
+        # 构建查询
+        query = db.query(InterviewEvaluation).join(
+            Resume, InterviewEvaluation.resume_id == Resume.id
+        ).filter(
+            Resume.is_deleted == 0
+        )
+        
+        # 姓名搜索
+        if keyword:
+            query = query.filter(Resume.candidate_name.like(f"%{keyword}%"))
+        
+        # 岗位筛选
+        if position:
+            query = query.filter(Resume.current_position.like(f"%{position}%"))
+        
+        # 获取总数
+        total = query.count()
+        
+        # 分页查询
+        evaluations = query.order_by(
+            InterviewEvaluation.created_at.desc()
+        ).offset((page - 1) * page_size).limit(page_size).all()
+        
+        # 格式化数据
+        items = []
+        for evaluation in evaluations:
+            resume = get_resume(db, evaluation.resume_id)
+            if resume:
+                level = get_level_from_score(float(evaluation.total_score))
+                
+                # 如果指定了等级筛选，检查是否匹配
+                if level and level != level:
+                    continue
+                
+                items.append({
+                    "id": evaluation.id,
+                    "candidate_name": resume.candidate_name,
+                    "position": resume.current_position or "未知岗位",
+                    "total_score": float(evaluation.total_score),
+                    "level": level,
+                    "ai_comment": evaluation.ai_comment[:100] + "..." if evaluation.ai_comment and len(evaluation.ai_comment) > 100 else evaluation.ai_comment,
+                    "created_at": evaluation.created_at,
+                    "avatar": None  # 可以后续添加头像字段
+                })
+        
+        return {
+            "code": 0,
+            "message": "success",
+            "data": {
+                "total": total,
+                "items": items,
+                "page": page,
+                "page_size": page_size
+            }
+        }
+        
+    except Exception as e:
+        print(f"获取评价列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取评价列表失败: {str(e)}")
+
+
+@router.get("/detail/{evaluation_id}", summary="获取评价详情")
+def get_evaluation_detail(evaluation_id: int, db: Session = Depends(get_db)):
+    """获取面试评价详情（包含候选人信息）"""
+    try:
+        # 获取评价
+        evaluation = get_evaluation_by_id(db, evaluation_id)
+        if not evaluation:
+            raise HTTPException(status_code=404, detail=f"评价不存在: evaluation_id={evaluation_id}")
+        
+        # 获取简历信息
+        resume = get_resume(db, evaluation.resume_id)
+        if not resume:
+            raise HTTPException(status_code=404, detail=f"简历不存在: resume_id={evaluation.resume_id}")
+        
+        # 格式化响应
+        response_data = format_evaluation_response(evaluation)
+        
+        # 添加候选人信息
+        response_data["candidate_info"] = {
+            "name": resume.candidate_name,
+            "position": resume.current_position or "未知岗位",
+            "education": resume.education,
+            "work_years": resume.work_years,
+            "phone": resume.phone,
+            "email": resume.email
+        }
+        
+        # 添加推荐等级
+        response_data["level"] = get_level_from_score(float(evaluation.total_score))
+        
+        return {
+            "code": 0,
+            "message": "success",
+            "data": response_data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"获取评价详情失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取评价详情失败: {str(e)}")
 
 
 @router.post("/generate", response_model=InterviewEvaluationResponse, summary="生成面试评价")

@@ -1,5 +1,43 @@
 import request from "./request";
 
+// ==================== 面试评价查询 ====================
+
+/**
+ * 获取面试评价列表
+ * @param {Object} params - 查询参数
+ * @returns {Promise}
+ */
+export function getEvaluationList(params) {
+  return request.get("/evaluations", { params });
+}
+
+/**
+ * 获取面试评价详情
+ * @param {number} id - 评价ID
+ * @returns {Promise}
+ */
+export function getEvaluationDetail(id) {
+  return request.get(`/evaluations/detail/${id}`);
+}
+
+/**
+ * 获取最新面试评价（通过简历ID）
+ * @param {number} resumeId - 简历ID
+ * @returns {Promise}
+ */
+export function getLatestEvaluation(resumeId) {
+  return request.get(`/evaluations/latest/${resumeId}`);
+}
+
+/**
+ * 获取面试评价历史（通过简历ID）
+ * @param {number} resumeId - 简历ID
+ * @returns {Promise}
+ */
+export function getEvaluationHistory(resumeId) {
+  return request.get(`/evaluations/history/${resumeId}`);
+}
+
 // ==================== 面试评价生成 ====================
 
 /**
@@ -11,26 +49,6 @@ export function generateEvaluation(summaryId) {
   return request.post("/evaluations/generate", {
     summary_id: summaryId,
   });
-}
-
-// ==================== 面试评价查询 ====================
-
-/**
- * 获取最新面试评价（通过简历ID）
- * @param {number} resumeId - 简历ID
- * @returns {Promise}
- */
-export function getLatestEvaluation(resumeId) {
-  return request.get(`/evaluations/${resumeId}`);
-}
-
-/**
- * 获取面试评价历史（通过简历ID）
- * @param {number} resumeId - 简历ID
- * @returns {Promise}
- */
-export function getEvaluationHistory(resumeId) {
-  return request.get(`/evaluations/history/${resumeId}`);
 }
 
 // ==================== HR补充评价 ====================

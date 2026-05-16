@@ -81,9 +81,10 @@
         <el-card class="right-card" shadow="never" title="各维度详细评价">
           <el-collapse v-model="activeCollapse">
             <el-collapse-item
-              v-for="item in dimensionList"
+              v-for="(item, index) in dimensionList"
               :key="item.name"
               :title="`${item.name} · ${item.score}分`"
+              :name="index"
             >
               <div class="detail-text">{{ item.detail }}</div>
             </el-collapse-item>
@@ -155,50 +156,63 @@
 
 <script setup>
 import { ref, reactive, onMounted, nextTick } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElLoading } from 'element-plus'
 import { Check, Warning } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import {
+  generateEvaluation,
+  getLatestEvaluation,
+  updateHrComment
+} from '@/api/evaluation'
+
+const route = useRoute()
+const router = useRouter()
 
 // 候选人基础信息
 const candidateInfo = reactive({
-  name: '张三',
-  position: '高级前端开发工程师',
-  date: '2025-01-20 14:00-15:30'
+  name: '',
+  position: '',
+  date: ''
 })
 
 // 综合得分
-const totalScore = ref(84.7)
+const totalScore = ref(0)
 // 折叠面板激活项
 const activeCollapse = ref([0])
 // HR补充评价
-const hrComment = ref('候选人综合素质优秀，符合岗位要求，建议录用。')
+const hrComment = ref('')
+// 当前评价ID
+const currentEvaluationId = ref(null)
+// 加载状态
+const loading = ref(false)
 // 雷达图 DOM 引用
 const radarRef = ref(null)
 let radarChart = null
 
 // 维度评分列表（权重+分数+详情）
 const dimensionList = reactive([
-  { name: '专业能力', weight: '30%', score: 88, detail: '熟练掌握Vue3/React/TS，前端工程化经验丰富，技术栈完全匹配岗位需求，代码规范度高。' },
-  { name: '逻辑思维', weight: '20%', score: 85, detail: '分析问题思路清晰，能快速定位问题核心，算法和逻辑推理能力良好，应对复杂场景表现优秀。' },
-  { name: '沟通表达', weight: '15%', score: 90, detail: '表达流畅，逻辑清晰，善于倾听和总结，团队沟通协作能力突出。' },
-  { name: '学习能力', weight: '15%', score: 82, detail: '主动学习新技术，有自我提升意识，对前沿技术有一定了解，学习效率较高。' },
-  { name: '团队协作', weight: '10%', score: 86, detail: '有团队项目经验，善于配合他人工作，责任心强，具备良好的团队意识。' },
-  { name: '文化匹配', weight: '10%', score: 79, detail: '价值观与公司匹配度较高，职业规划清晰，稳定性较好。' }
+  { name: '专业能力', weight: '30%', score: 0, detail: '' },
+  { name: '逻辑思维', weight: '20%', score: 0, detail: '' },
+  { name: '沟通表达', weight: '15%', score: 0, detail: '' },
+  { name: '学习能力', weight: '15%', score: 0, detail: '' },
+  { name: '团队协作', weight: '10%', score: 0, detail: '' },
+  { name: '文化匹配', weight: '10%', score: 0, detail: '' }
 ])
 
 // 评价详情数据
 const evaluateInfo = reactive({
-  aiComment: '该候选人拥有5年前端开发经验，技术栈全面且扎实，熟练掌握Vue3、React、TypeScript等核心技术，具备大型企业级项目开发与性能优化经验。专业能力突出，逻辑思维与沟通表达能力优秀，学习能力和团队协作意识良好。整体综合素质远超岗位基础要求，是极具潜力的优质候选人。不足之处在于微前端架构实践经验较少，对低代码平台的了解不够深入。建议入职后针对性培养微前端相关技术，未来可成长为团队核心骨干，完全符合岗位录用标准。',
-  advantages: ['技术栈全面匹配', '项目经验丰富', '沟通表达优秀', '逻辑思维清晰'],
-  concerns: ['微前端经验不足', '低代码平台实践较少'],
-  suggestion: '候选人综合素质优秀，专业能力、软技能均满足岗位要求，建议直接录用，可作为核心开发人员培养。'
+  aiComment: '',
+  advantages: [],
+  concerns: [],
+  suggestion: ''
 })
 
 // ==================== 工具方法 ====================
 // 获取分数对应颜色
 const getScoreColor = (score) => {
   if (score >= 90) return '#67c23a'
-  if (score >= 70) return '#409eff'
+  if (score >= 75) return '#409eff'
   if (score >= 60) return '#909399'
   return '#f56c6c'
 }
@@ -213,12 +227,12 @@ const setLevelInfo = () => {
   if (score >= 90) {
     getLevelInfo.type = 'success'
     getLevelInfo.text = '强烈推荐'
-  } else if (score >= 70) {
+  } else if (score >= 75) {
     getLevelInfo.type = 'primary'
     getLevelInfo.text = '推荐'
   } else if (score >= 60) {
     getLevelInfo.type = 'info'
-    getLevelInfo.text = '一般'
+    getLevelInfo.text = '可考虑'
   } else {
     getLevelInfo.type = 'danger'
     getLevelInfo.text = '不推荐'
@@ -226,12 +240,128 @@ const setLevelInfo = () => {
 }
 
 // 保存HR评价
-const saveHrComment = () => {
-  ElMessage.success('HR补充评价保存成功！')
+const saveHrComment = async () => {
+  if (!currentEvaluationId.value) {
+    ElMessage.warning('暂无评价数据')
+    return
+  }
+
+  if (!hrComment.value.trim()) {
+    ElMessage.warning('请输入HR补充评价')
+    return
+  }
+
+  try {
+    await updateHrComment(currentEvaluationId.value, hrComment.value)
+    ElMessage.success('HR补充评价保存成功！')
+  } catch (error) {
+    console.error('保存HR评价失败:', error)
+    ElMessage.error('保存失败，请重试')
+  }
+}
+
+// 加载评价数据
+const loadEvaluation = async (resumeId) => {
+  loading.value = true
+  try {
+    const response = await getLatestEvaluation(resumeId)
+
+    // 填充候选人信息
+    if (response.candidate_info) {
+      candidateInfo.name = response.candidate_info.name || '未知'
+      candidateInfo.position = response.candidate_info.position || '未知岗位'
+
+      // 如果有面试日期，可以格式化显示
+      if (response.created_at) {
+        const date = new Date(response.created_at)
+        candidateInfo.date = date.toLocaleString('zh-CN', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      }
+    }
+
+    // 填充评价数据
+    currentEvaluationId.value = response.id
+    totalScore.value = response.total_score
+
+    // 填充各维度评分
+    dimensionList[0].score = response.scores.professional.score
+    dimensionList[0].detail = response.scores.professional.comment || ''
+
+    dimensionList[1].score = response.scores.logic.score
+    dimensionList[1].detail = response.scores.logic.comment || ''
+
+    dimensionList[2].score = response.scores.communication.score
+    dimensionList[2].detail = response.scores.communication.comment || ''
+
+    dimensionList[3].score = response.scores.learning.score
+    dimensionList[3].detail = response.scores.learning.comment || ''
+
+    dimensionList[4].score = response.scores.teamwork.score
+    dimensionList[4].detail = response.scores.teamwork.comment || ''
+
+    dimensionList[5].score = response.scores.culture_fit.score
+    dimensionList[5].detail = response.scores.culture_fit.comment || ''
+
+    // 填充评价详情
+    evaluateInfo.aiComment = response.ai_comment || '暂无AI评语'
+    evaluateInfo.advantages = response.key_strengths || []
+    evaluateInfo.concerns = response.improvement_areas || []
+    evaluateInfo.suggestion = response.hiring_suggestion || '暂无录用建议'
+
+    // HR补充评价
+    hrComment.value = response.hr_comment || ''
+
+    // 设置推荐等级
+    setLevelInfo()
+
+    // 初始化雷达图
+    nextTick(() => initRadarChart())
+
+  } catch (error) {
+    console.error('加载评价失败:', error)
+    ElMessage.error('加载评价数据失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// 生成评价
+const handleGenerateEvaluation = async (summaryId) => {
+  const hideLoading = ElLoading.service({
+    lock: true,
+    text: '正在生成面试评价...',
+    background: 'rgba(0, 0, 0, 0.7)'
+  })
+
+  try {
+    const response = await generateEvaluation(summaryId)
+
+    ElMessage.success('评价生成成功！')
+
+    // 重新加载评价数据
+    await loadEvaluation(response.resume_id)
+
+  } catch (error) {
+    console.error('生成评价失败:', error)
+    ElMessage.error('生成评价失败，请重试')
+  } finally {
+    hideLoading.close()
+  }
 }
 
 // ==================== ECharts 雷达图初始化 ====================
 const initRadarChart = () => {
+  if (!radarRef.value) return
+
+  if (radarChart) {
+    radarChart.dispose()
+  }
+
   radarChart = echarts.init(radarRef.value)
   const indicator = dimensionList.map(item => ({ name: item.name, max: 100 }))
   const data = dimensionList.map(item => item.score)
@@ -251,7 +381,7 @@ const initRadarChart = () => {
             value: data,
             name: '能力评分',
             areaStyle: {
-              color: 'rgba(64, 158, 255, 0.2)' // 半透明填充
+              color: 'rgba(64, 158, 255, 0.2)'
             },
             itemStyle: { color: '#409eff' },
             lineStyle: { width: 2 }
@@ -261,41 +391,56 @@ const initRadarChart = () => {
     ]
   }
   radarChart.setOption(option)
-  // 响应式适配
   window.addEventListener('resize', () => radarChart.resize())
 }
 
 // 生命周期
 onMounted(() => {
-  setLevelInfo()
-  nextTick(() => initRadarChart())
+  // 从路由参数获取resumeId或summaryId
+  const resumeId = route.query.resumeId
+  const summaryId = route.query.summaryId
+
+  console.log('路由参数:', { resumeId, summaryId })
+
+  if (summaryId) {
+    // 如果有summaryId，先生成评价
+    handleGenerateEvaluation(summaryId)
+  } else if (resumeId) {
+    // 否则直接加载已有评价
+    loadEvaluation(resumeId)
+  } else {
+    // 没有参数时显示提示，但不跳转（方便调试）
+    ElMessage.warning('缺少必要参数，请使用 /evaluation?resumeId=9 访问')
+
+    // 设置默认提示信息
+    candidateInfo.name = '请先选择候选人'
+    candidateInfo.position = '面试评价系统'
+    candidateInfo.date = new Date().toLocaleDateString('zh-CN')
+    evaluateInfo.aiComment = '请通过简历管理页面进入评价功能，或直接访问：/evaluation?resumeId=9'
+  }
 })
 </script>
 
 <style scoped>
 .interview-evaluate-page {
   width: 100%;
-  padding-bottom: 80px; /* 预留底部操作栏高度 */
+  padding-bottom: 80px;
 }
 
-/* 面包屑 */
 .breadcrumb {
   margin-bottom: 16px;
 }
 
-/* 主布局 */
 .main-row {
   width: 100%;
 }
 
-/* 左侧卡片：sticky 固定定位 */
 .left-card {
   position: sticky;
   top: 20px;
   padding: 24px;
 }
 
-/* 候选人信息 */
 .candidate-info {
   text-align: center;
   margin-bottom: 30px;
@@ -314,7 +459,6 @@ onMounted(() => {
   color: #606266;
 }
 
-/* 综合得分 */
 .total-score {
   text-align: center;
   margin-bottom: 20px;
@@ -329,7 +473,6 @@ onMounted(() => {
   padding: 6px 16px;
 }
 
-/* 维度评分 */
 .card-title {
   font-size: 16px;
   font-weight: 600;
@@ -361,14 +504,12 @@ onMounted(() => {
   font-size: 14px;
 }
 
-/* 雷达图容器 */
 .chart-box {
   width: 100%;
   height: 300px;
   margin: 0 auto;
 }
 
-/* 右侧卡片 */
 .right-card {
   margin-bottom: 16px;
 }
@@ -382,7 +523,6 @@ onMounted(() => {
   color: #606266;
 }
 
-/* 优势/待提升模块 */
 .box-title {
   display: flex;
   align-items: center;
@@ -404,7 +544,6 @@ onMounted(() => {
   margin-bottom: 6px;
 }
 
-/* 录用建议 */
 .suggestion-box {
   background: #f5f7fa;
   padding: 12px 16px;
@@ -414,7 +553,6 @@ onMounted(() => {
   font-weight: 500;
 }
 
-/* 底部固定操作栏 */
 .bottom-operate {
   position: fixed;
   bottom: 0;
@@ -433,7 +571,6 @@ onMounted(() => {
   gap: 16px;
 }
 
-/* 通用间距类 */
 .mt-15 { margin-top: 15px; }
 .mt-25 { margin-top: 25px; }
 .mb-10 { margin-bottom: 10px; }

@@ -24,7 +24,7 @@ def test_oss_upload():
         return False
 
     # 查找录音文件
-    recordings_dir = "uploads/recordings"
+    recordings_dir = "../uploads/recordings"
     if not os.path.exists(recordings_dir):
         print(f"❌ 录音目录不存在: {recordings_dir}")
         return False
@@ -88,7 +88,7 @@ def test_streaming_transcription():
     print("=" * 60)
 
     # 查找录音文件
-    recordings_dir = "uploads/recordings"
+    recordings_dir = "../uploads/recordings"
     if not os.path.exists(recordings_dir):
         print(f"❌ 录音目录不存在: {recordings_dir}")
         return False

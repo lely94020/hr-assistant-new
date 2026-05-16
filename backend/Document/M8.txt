@@ -1,0 +1,290 @@
+M8 - 候选人对比模块
+一、模块概述
+项目	说明
+模块编号	M8
+模块名称	候选人对比
+优先级	P1
+核心技术	LangChain、数据可视化
+关联模块	M2简历管理、M7面试评价
+1.1 模块定位
+支持多个候选人的横向对比分析，利用AI生成对比报告，辅助HR做出最终的录用决策。
+1.2 技术亮点
+● 多维度对比：基础信息、评分、能力全方位对比
+● 可视化展示：雷达图、柱状图直观呈现差异
+● AI决策建议：智能分析并给出推荐排名
+
+二、功能清单
+功能编号	功能名称	功能描述	优先级
+M8-F1	选择对比候选人	选择2-5个候选人进行对比	P0
+M8-F2	基础信息对比	对比学历、经验、技能等	P0
+M8-F3	评分对比	对比各维度评分	P0
+M8-F4	雷达图展示	用雷达图可视化对比	P1
+M8-F5	AI对比分析	AI生成对比分析报告	P0
+M8-F6	推荐排名	AI给出候选人推荐排名	P0
+M8-F7	导出对比报告	导出对比结果为PDF	P2
+
+三、功能详细说明
+3.1 对比维度
+类别	对比项	数据来源
+基础信息	学历、院校、专业	简历
+工作背景	工作年限、当前公司、当前职位	简历
+技能匹配	岗位要求技能的匹配程度	简历+筛选
+面试评分	六大维度评分及综合分	评价
+综合分析	各候选人优劣势	AI分析
+3.2 对比流程
+┌─────────────────────────────────────────────────────────────┐
+│                    候选人对比流程                            │
+└─────────────────────────────────────────────────────────────┘
+
+1. 选择目标岗位
+        │
+        ▼
+2. 选择待对比候选人（2-5人）
+        │
+        ▼
+3. 系统汇总各候选人数据
+   - 简历信息
+   - 面试评分
+   - 匹配分析
+        │
+        ▼
+4. 生成对比表格和图表
+        │
+        ▼
+5. 调用AI生成对比分析
+        │
+        ▼
+6. 展示推荐排名和建议
+
+3.3 AI对比分析Prompt
+你是一位资深的招聘顾问，请对以下候选人进行对比分析。
+
+【目标岗位】
+岗位名称：{position_name}
+核心要求：{requirements}
+
+【候选人信息】
+
+候选人A - {name_a}：
+- 学历：{education_a} - {school_a}
+- 工作年限：{work_years_a}年
+- 当前职位：{position_a} @ {company_a}
+- 技能：{skills_a}
+- 面试评分：专业{prof_a}分、逻辑{logic_a}分、沟通{comm_a}分、学习{learn_a}分、团队{team_a}分、文化{culture_a}分
+- 综合得分：{total_a}分
+- 面试亮点：{highlights_a}
+- 面试疑虑：{concerns_a}
+
+候选人B - {name_b}：
+（同上格式）
+
+候选人C - {name_c}：
+（同上格式）
+
+请按以下JSON格式返回对比分析：
+{
+    "comparison_summary": "对比总结（200字，概述各候选人的整体情况和差异）",
+
+    "candidate_analysis": [
+        {
+            "name": "候选人A姓名",
+            "advantages_over_others": ["相比其他候选人的优势1", "优势2"],
+            "disadvantages": ["相比其他候选人的劣势1"],
+            "suitable_scenarios": "最适合的场景（如急需上岗、长期培养等）",
+            "risk_points": "录用风险点"
+        }
+    ],
+
+    "ranking": [
+        {
+            "rank": 1,
+            "name": "候选人姓名",
+            "score": 综合推荐分,
+            "reason": "排名第一的理由（50字）"
+        }
+    ],
+
+    "recommendation": {
+        "best_choice": "最佳人选姓名",
+        "reason": "推荐理由（100字）",
+        "alternative": "备选人选姓名",
+        "alternative_reason": "备选理由"
+    },
+
+    "hiring_advice": "最终录用建议（150字，包含决策建议和注意事项）"
+}
+
+分析要求：
+1. 客观公正，基于数据和面试表现
+2. 突出每个候选人的差异化优势
+3. 考虑岗位需求的匹配度
+4. 给出明确的排名和推荐
+
+四、数据模型
+4.1 候选人对比表（candidate_comparison）
+字段名	类型	必填	说明
+id	BIGINT	是	主键ID
+position_id	BIGINT	是	关联岗位ID
+resume_ids	JSON	是	参与对比的简历ID列表
+comparison_data	JSON	否	对比数据快照
+ai_analysis	JSON	否	AI分析结果
+ranking	JSON	否	推荐排名
+created_by	BIGINT	否	创建人
+created_at	DATETIME	是	创建时间
+4.2 SQL建表语句
+CREATE TABLE candidate_comparison (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    position_id BIGINT NOT NULL COMMENT '岗位ID',
+    resume_ids JSON NOT NULL COMMENT '简历ID列表',
+    comparison_data JSON DEFAULT NULL COMMENT '对比数据',
+    ai_analysis JSON DEFAULT NULL COMMENT 'AI分析',
+    ranking JSON DEFAULT NULL COMMENT '排名',
+    created_by BIGINT DEFAULT NULL COMMENT '创建人',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_position (position_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='候选人对比表';
+
+五、接口设计
+5.1 接口清单
+接口名称	方法	路径	说明
+创建对比	POST	/api/v1/comparison/create	创建候选人对比
+获取对比结果	GET	/api/v1/comparison/{id}	获取对比详情
+AI对比分析	POST	/api/v1/comparison/{id}/analyze	生成AI对比分析
+导出报告	GET	/api/v1/comparison/{id}/export	导出PDF报告
+对比历史	GET	/api/v1/comparison/history	获取对比历史列表
+5.2 接口详细定义
+5.2.1 创建对比
+POST /api/v1/comparison/create
+Content-Type: application/json
+
+Request Body:
+{
+    "position_id": 1,
+    "resume_ids": [101, 102, 103]
+}
+
+Response 200:
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "id": 801,
+        "position": {
+            "id": 1,
+            "name": "高级Java开发工程师"
+        },
+        "candidates": [
+            {
+                "resume_id": 101,
+                "name": "张三",
+                "education": "本科",
+                "school": "北京大学",
+                "work_years": 5,
+                "current_position": "高级工程师",
+                "skills": ["Java", "Spring Cloud"],
+                "evaluation": {
+                    "professional_score": 85,
+                    "logic_score": 90,
+                    "communication_score": 80,
+                    "learning_score": 88,
+                    "teamwork_score": 82,
+                    "culture_score": 78,
+                    "total_score": 84.7
+                }
+            },
+            // 其他候选人...
+        ]
+    }
+}
+5.2.2 AI对比分析
+POST /api/v1/comparison/801/analyze
+
+Response 200:
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "comparison_summary": "本次对比的三位候选人各有特点。张三技术功底最扎实，微服务经验丰富；李四学历背景最优，学习能力突出；王五工作年限最长，项目管理经验丰富。综合来看，张三与岗位要求匹配度最高。",
+
+        "candidate_analysis": [
+            {
+                "name": "张三",
+                "advantages_over_others": [
+                    "微服务架构经验最丰富，有千万级系统实战",
+                    "面试表现最好，逻辑思维清晰"
+                ],
+                "disadvantages": ["学历背景相对较弱"],
+                "suitable_scenarios": "适合核心系统开发，能快速上手",
+                "risk_points": "团队主动性需要关注"
+            }
+        ],
+
+        "ranking": [
+            {"rank": 1, "name": "张三", "score": 92, "reason": "技术能力最强，与岗位匹配度最高"},
+            {"rank": 2, "name": "李四", "score": 85, "reason": "潜力大，适合长期培养"},
+            {"rank": 3, "name": "王五", "score": 78, "reason": "经验丰富但技术略显陈旧"}
+        ],
+
+        "recommendation": {
+            "best_choice": "张三",
+            "reason": "张三的技术能力和项目经验与岗位要求高度匹配，面试表现优秀，建议优先录用。",
+            "alternative": "李四",
+            "alternative_reason": "如张三未能入职，李四是很好的备选，虽然经验略少但潜力大"
+        },
+
+        "hiring_advice": "建议优先录用张三，其技术能力和经验与岗位最为匹配。如果张三薪资期望过高或未能入职，可考虑李四，需要预留更长的培养期。王五建议暂不考虑，技术栈与岗位要求存在一定差距。"
+    }
+}
+
+六、可视化展示
+6.1 评分对比雷达图
+// ECharts雷达图 - 多候选人叠加
+{
+    legend: {
+        data: ['张三', '李四', '王五']
+    },
+    radar: {
+        indicator: [
+            { name: '专业能力', max: 100 },
+            { name: '逻辑思维', max: 100 },
+            { name: '沟通表达', max: 100 },
+            { name: '学习能力', max: 100 },
+            { name: '团队协作', max: 100 },
+            { name: '文化匹配', max: 100 }
+        ]
+    },
+    series: [{
+        type: 'radar',
+        data: [
+            { value: [85, 90, 80, 88, 82, 78], name: '张三' },
+            { value: [78, 85, 85, 92, 80, 82], name: '李四' },
+            { value: [80, 75, 82, 78, 88, 80], name: '王五' }
+        ]
+    }]
+}
+6.2 综合得分柱状图
+// ECharts柱状图
+{
+    xAxis: {
+        type: 'category',
+        data: ['张三', '李四', '王五']
+    },
+    yAxis: {
+        type: 'value',
+        max: 100
+    },
+    series: [{
+        data: [84.7, 82.3, 79.5],
+        type: 'bar',
+        itemStyle: {
+            color: function(params) {
+                const colors = ['#67C23A', '#409EFF', '#909399'];
+                return colors[params.dataIndex];
+            }
+        }
+    }]
+}
+
+七、关联页面
+页面	说明
+P13-候选人对比页	候选人对比功能页面

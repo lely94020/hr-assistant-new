@@ -1,45 +1,41 @@
 <template>
   <el-container class="layout-container">
     <!-- 顶部导航栏 -->
-    <el-header class="layout-header">
+    <el-header class="header">
       <div class="header-left">
-        <!-- 菜单折叠按钮 -->
-        <el-button
-          type="text"
-          @click="collapsed = !collapsed"
+        <el-icon class="logo-icon" size="32" color="#409EFF">
+          <Monitor />
+        </el-icon>
+        <span class="system-name">企业HR智能助手</span>
+        <el-icon
           class="collapse-btn"
+          @click="toggleCollapse"
+          size="20"
         >
-          <el-icon :size="20">
-            <component :is="collapsed ? Expand : Fold" />
-          </el-icon>
-        </el-button>
-
-        <!-- Logo和系统名称 -->
-        <div class="logo-section">
-          <el-icon class="logo-icon" :size="28">
-            <Service />
-          </el-icon>
-          <span class="system-name">企业HR智能助手</span>
-        </div>
+          <component :is="isCollapse ? Expand : Fold" />
+        </el-icon>
       </div>
 
-      <!-- 右侧用户信息 -->
       <div class="header-right">
-        <el-dropdown @command="handleUserCommand">
+        <el-dropdown @command="handleCommand">
           <div class="user-info">
-            <el-avatar :size="32" icon="User" />
-            <span class="username">Admin</span>
-            <el-icon><ArrowDown /></el-icon>
+            <el-avatar :size="32" :src="userInfo.avatar || defaultAvatar" />
+            <span class="username">{{ userInfo.username || 'Admin' }}</span>
+            <el-icon class="dropdown-icon"><ArrowDown /></el-icon>
           </div>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="profile">
                 <el-icon><User /></el-icon>
-                <span style="margin-left: 8px;">个人信息</span>
+                个人信息
+              </el-dropdown-item>
+              <el-dropdown-item command="settings">
+                <el-icon><Setting /></el-icon>
+                系统设置
               </el-dropdown-item>
               <el-dropdown-item command="logout" divided>
                 <el-icon><SwitchButton /></el-icon>
-                <span style="margin-left: 8px;">退出登录</span>
+                退出登录
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -47,21 +43,19 @@
       </div>
     </el-header>
 
-    <!-- 主体区域 -->
     <el-container>
       <!-- 左侧菜单栏 -->
-      <el-aside
-        :width="collapsed ? '64px' : '200px'"
-        class="layout-aside"
-      >
+      <el-aside :width="isCollapse ? '64px' : '200px'" class="sidebar">
         <el-menu
-          :default-active="$route.path"
-          :collapse="collapsed"
+          :collapse="isCollapse"
+          :collapse-transition="false"
+          mode="vertical"
           router
-          class="sidebar-menu"
-          background-color="#001529"
-          text-color="#fff"
           active-text-color="#409EFF"
+          background-color="#001529"
+          text-color="#bfcbd9"
+          class="sidebar-menu"
+          :default-active="activeMenu"
         >
           <el-menu-item index="/dashboard">
             <el-icon><House /></el-icon>
@@ -106,80 +100,148 @@
       </el-aside>
 
       <!-- 主内容区 -->
-      <el-main class="layout-main">
-        <router-view />
+      <el-main class="main-content">
+        <router-view v-slot="{ Component }">
+          <transition name="fade" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
       </el-main>
     </el-container>
   </el-container>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import {
-  Expand, Fold, User, ArrowDown, SwitchButton,
-  Service, House, OfficeBuilding, Document,
-  Search, QuestionFilled, Microphone, Star,
-  ScaleToOriginal
+  Monitor, Expand, Fold, ArrowDown, House, OfficeBuilding,
+  Document, Search, QuestionFilled, Microphone, Star,
+  ScaleToOriginal, User, Setting, SwitchButton
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
-const collapsed = ref(false)
+const route = useRoute()
+const isCollapse = ref(false)
 
-// 用户下拉菜单事件处理
-const handleUserCommand = (command) => {
-  switch (command) {
-    case 'profile':
-      ElMessage.info('个人信息功能开发中')
-      break
-    case 'logout':
-      ElMessage.success('已退出登录')
-      router.push('/login')
-      break
+// 默认头像
+const defaultAvatar = 'https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png'
+
+// 用户信息
+const userInfo = ref({
+  username: '',
+  avatar: ''
+})
+
+// 当前激活的菜单
+const activeMenu = computed(() => {
+  return route.path
+})
+
+// 切换菜单折叠状态
+const toggleCollapse = () => {
+  isCollapse.value = !isCollapse.value
+}
+
+// 获取用户信息
+const getUserInfo = () => {
+  try {
+    const userInfoStr = localStorage.getItem('user_info') || sessionStorage.getItem('user_info')
+    if (userInfoStr) {
+      const parsed = JSON.parse(userInfoStr)
+      userInfo.value = {
+        username: parsed.real_name || parsed.username || 'Admin',
+        avatar: parsed.avatar || ''
+      }
+    } else {
+      userInfo.value.username = 'Admin'
+    }
+  } catch (error) {
+    console.error('获取用户信息失败:', error)
+    userInfo.value.username = 'Admin'
   }
 }
+
+// 处理下拉菜单命令
+const handleCommand = (command) => {
+  if (command === 'logout') {
+    ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }).then(() => {
+      // 清除token和用户信息
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('user_info')
+      localStorage.removeItem('username')
+      sessionStorage.removeItem('access_token')
+      sessionStorage.removeItem('user_info')
+      sessionStorage.removeItem('username')
+
+      ElMessage.success('已退出登录')
+      router.push('/login')
+    }).catch(() => {
+      // 取消退出
+    })
+  } else if (command === 'profile') {
+    ElMessage.info('个人信息页面开发中')
+  } else if (command === 'settings') {
+    ElMessage.info('系统设置页面开发中')
+  }
+}
+
+onMounted(() => {
+  getUserInfo()
+})
 </script>
 
 <style scoped>
 .layout-container {
   height: 100vh;
+  width: 100%;
 }
 
-/* 顶部导航栏 */
-.layout-header {
+.header {
   background-color: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 4px rgba(0, 21, 41, 0.08);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
+  height: 60px !important;
+  z-index: 10;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 16px;
-}
-
-.collapse-btn {
-  font-size: 20px;
-}
-
-.logo-section {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 
 .logo-icon {
-  color: #409EFF;
+  cursor: pointer;
 }
 
 .system-name {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
-  color: #303133;
+  color: #409EFF;
+  white-space: nowrap;
+}
+
+.collapse-btn {
+  cursor: pointer;
+  color: #606266;
+  margin-left: 20px;
+  transition: all 0.3s;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.collapse-btn:hover {
+  color: #409EFF;
+  background-color: #f5f7fa;
 }
 
 .header-right {
@@ -192,40 +254,83 @@ const handleUserCommand = (command) => {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  padding: 0 12px;
-  height: 100%;
+  padding: 6px 12px;
+  border-radius: 4px;
+  transition: background-color 0.3s;
+}
+
+.user-info:hover {
+  background-color: #f5f7fa;
 }
 
 .username {
   font-size: 14px;
-  color: #606266;
+  color: #303133;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* 左侧菜单栏 */
-.layout-aside {
-  height: calc(100vh - 60px);
-  overflow: hidden;
+.dropdown-icon {
+  font-size: 12px;
+  color: #909399;
+}
+
+.sidebar {
+  background-color: #001529;
+  transition: width 0.3s;
+  overflow-x: hidden;
 }
 
 .sidebar-menu {
-  height: 100%;
   border-right: none;
+  height: calc(100vh - 60px);
+  overflow-y: auto;
+}
+
+.sidebar-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-menu::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
 }
 
 .sidebar-menu :deep(.el-menu-item) {
+  background-color: #001529;
+  color: #bfcbd9;
   height: 50px;
   line-height: 50px;
+  margin: 4px 0;
 }
 
-.sidebar-menu :deep(.el-menu-item.is-active) {
-  background-color: #409EFF !important;
+.sidebar-menu :deep(.el-menu-item:hover) {
+  background-color: #1890ff;
   color: #fff;
 }
 
-/* 主内容区 */
-.layout-main {
+.sidebar-menu :deep(.el-menu-item.is-active) {
+  background-color: #409EFF;
+  color: #fff;
+}
+
+.main-content {
   background-color: #f5f7fa;
   padding: 20px;
   overflow-y: auto;
+  height: calc(100vh - 60px);
+}
+
+/* 路由过渡动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

@@ -18,7 +18,7 @@ def create_test_resumes():
 
     try:
         # 创建上传目录
-        upload_dir = "uploads/resumes"
+        upload_dir = "../uploads/resumes"
         os.makedirs(upload_dir, exist_ok=True)
 
         # 创建简单的测试文本文件（模拟简历）

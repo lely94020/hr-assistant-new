@@ -22,7 +22,7 @@ def test_dashscope_response():
     print(f"\nAPI Key: {settings.DASHSCOPE_API_KEY[:20]}...")
 
     # 查找录音文件
-    recordings_dir = "uploads/recordings"
+    recordings_dir = "../uploads/recordings"
     audio_files = []
     for file in os.listdir(recordings_dir):
         if file.endswith(('.mp3', '.wav', '.m4a', '.aac')):

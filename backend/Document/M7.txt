@@ -1,0 +1,237 @@
+M7 - 面试评价模块
+一、模块概述
+项目	说明
+模块编号	M7
+模块名称	面试评价
+优先级	P0
+核心技术	LangChain、多维度评分算法
+关联模块	M6面试摘要、M8候选人对比
+1.1 模块定位
+基于面试摘要和文字稿，利用AI进行多维度智能评价，辅助HR做出更客观的评估。
+1.2 技术亮点
+● 多维度评分：6个维度全面评估候选人
+● 权重加权：不同维度可设置权重
+● AI评语：自动生成综合评价文字
+
+二、功能清单
+功能编号	功能名称	功能描述	优先级
+M7-F1	AI智能评价	基于面试内容自动生成评价	P0
+M7-F2	多维度评分	按多个维度分别评分	P0
+M7-F3	录用建议	AI给出录用建议	P0
+M7-F4	HR补充评价	HR手动添加评价	P1
+M7-F5	评价历史	查看候选人所有面试评价	P1
+
+三、功能详细说明
+3.1 评价维度体系
+维度	权重	考察内容	评分标准
+专业能力	30%	岗位相关的专业知识和技能	技术深度、广度、实战经验
+逻辑思维	20%	分析和解决问题的逻辑性	问题分析、方案设计、推理能力
+沟通表达	15%	语言表达和沟通技巧	表达清晰度、听众意识、反馈能力
+学习能力	15%	学习新知识的能力和意愿	学习方法、新技术跟进、自我提升
+团队协作	10%	团队合作意识和经验	协作案例、冲突处理、角色定位
+文化匹配	10%	与企业文化的契合度	价值观、工作风格、职业目标
+3.2 评分等级
+等级	分数范围	说明	录用建议
+优秀	90-100	各方面表现突出	强烈推荐录用
+良好	75-89	整体表现不错	推荐录用
+一般	60-74	勉强达到要求	可考虑录用
+较差	0-59	未达到要求	不推荐录用
+3.3 综合得分计算
+综合得分 = Σ(各维度得分 × 权重)
+
+示例：
+= 85×0.30 + 90×0.20 + 80×0.15 + 88×0.15 + 82×0.10 + 78×0.10
+= 25.5 + 18 + 12 + 13.2 + 8.2 + 7.8
+= 84.7分（良好）
+
+3.4 AI评价Prompt
+你是一位资深的HR评估专家，请根据以下面试摘要对候选人进行多维度评价。
+
+【基本信息】
+候选人：{candidate_name}
+应聘岗位：{position_name}
+岗位要求：{requirements}
+
+【面试摘要】
+面试概要：{summary_overview}
+
+核心问答表现：
+{key_qa_text}
+
+能力标签：
+- 技术能力：{technical_skills}
+- 软技能：{soft_skills}
+
+亮点：{highlights}
+疑虑：{concerns}
+
+请按以下JSON格式返回评价结果：
+{
+    "scores": {
+        "professional": {
+            "score": 85,
+            "comment": "对这个维度的具体评价（50字以内）"
+        },
+        "logic": {
+            "score": 90,
+            "comment": "..."
+        },
+        "communication": {
+            "score": 80,
+            "comment": "..."
+        },
+        "learning": {
+            "score": 88,
+            "comment": "..."
+        },
+        "teamwork": {
+            "score": 82,
+            "comment": "..."
+        },
+        "culture_fit": {
+            "score": 78,
+            "comment": "..."
+        }
+    },
+    "total_score": 84.7,
+    "recommendation": "推荐",
+    "overall_comment": "综合评语（200-300字，包含优势、不足、发展建议）",
+    "key_strengths": ["核心优势1", "核心优势2"],
+    "improvement_areas": ["待提升领域1", "待提升领域2"],
+    "hiring_suggestion": "录用建议和理由（100字）"
+}
+
+评分标准：
+- 90-100：表现优秀，明显超出期望
+- 75-89：表现良好，符合期望
+- 60-74：表现一般，勉强达到要求
+- 0-59：表现较差，未达到要求
+
+请基于面试表现客观评分，不要过于宽松或苛刻。
+
+四、数据模型
+4.1 面试评价表（interview_evaluation）
+字段名	类型	必填	说明
+id	BIGINT	是	主键ID
+resume_id	BIGINT	是	关联简历ID
+recording_id	BIGINT	否	关联录音ID
+summary_id	BIGINT	否	关联摘要ID
+professional_score	INT	是	专业能力评分
+professional_comment	VARCHAR(200)	否	专业能力评语
+logic_score	INT	是	逻辑思维评分
+logic_comment	VARCHAR(200)	否	逻辑思维评语
+communication_score	INT	是	沟通表达评分
+communication_comment	VARCHAR(200)	否	沟通表达评语
+learning_score	INT	是	学习能力评分
+learning_comment	VARCHAR(200)	否	学习能力评语
+teamwork_score	INT	是	团队协作评分
+teamwork_comment	VARCHAR(200)	否	团队协作评语
+culture_score	INT	是	文化匹配评分
+culture_comment	VARCHAR(200)	否	文化匹配评语
+total_score	DECIMAL(5,2)	是	综合加权得分
+recommendation	VARCHAR(20)	是	推荐等级
+ai_comment	TEXT	否	AI综合评语
+key_strengths	JSON	否	核心优势
+improvement_areas	JSON	否	待提升领域
+hiring_suggestion	TEXT	否	录用建议
+hr_comment	TEXT	否	HR补充评价
+created_at	DATETIME	是	创建时间
+updated_at	DATETIME	是	更新时间
+4.2 SQL建表语句
+CREATE TABLE interview_evaluation (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    resume_id BIGINT NOT NULL,
+    recording_id BIGINT DEFAULT NULL,
+    summary_id BIGINT DEFAULT NULL,
+    professional_score INT NOT NULL COMMENT '专业能力',
+    professional_comment VARCHAR(200) DEFAULT NULL,
+    logic_score INT NOT NULL COMMENT '逻辑思维',
+    logic_comment VARCHAR(200) DEFAULT NULL,
+    communication_score INT NOT NULL COMMENT '沟通表达',
+    communication_comment VARCHAR(200) DEFAULT NULL,
+    learning_score INT NOT NULL COMMENT '学习能力',
+    learning_comment VARCHAR(200) DEFAULT NULL,
+    teamwork_score INT NOT NULL COMMENT '团队协作',
+    teamwork_comment VARCHAR(200) DEFAULT NULL,
+    culture_score INT NOT NULL COMMENT '文化匹配',
+    culture_comment VARCHAR(200) DEFAULT NULL,
+    total_score DECIMAL(5,2) NOT NULL COMMENT '综合得分',
+    recommendation VARCHAR(20) NOT NULL COMMENT '推荐等级',
+    ai_comment TEXT DEFAULT NULL COMMENT 'AI评语',
+    key_strengths JSON DEFAULT NULL COMMENT '核心优势',
+    improvement_areas JSON DEFAULT NULL COMMENT '待提升',
+    hiring_suggestion TEXT DEFAULT NULL COMMENT '录用建议',
+    hr_comment TEXT DEFAULT NULL COMMENT 'HR评价',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_resume (resume_id),
+    INDEX idx_score (total_score)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='面试评价表';
+
+五、接口设计
+5.1 接口清单
+接口名称	方法	路径	说明
+生成评价	POST	/api/v1/evaluations/generate	AI生成面试评价
+获取评价	GET	/api/v1/evaluations/{resumeId}	获取候选人评价
+HR补充评价	PUT	/api/v1/evaluations/{id}/hr-comment	添加HR评价
+评价历史	GET	/api/v1/evaluations/history/{resumeId}	获取评价历史
+5.2 接口详细定义
+5.2.1 生成评价
+POST /api/v1/evaluations/generate
+Content-Type: application/json
+
+Request Body:
+{
+    "summary_id": 601
+}
+
+Response 200:
+{
+    "code": 0,
+    "message": "success",
+    "data": {
+        "id": 701,
+        "resume_id": 101,
+        "scores": {
+            "professional": {"score": 85, "comment": "Java基础扎实，微服务经验丰富"},
+            "logic": {"score": 90, "comment": "问题分析清晰，解决方案合理"},
+            "communication": {"score": 80, "comment": "表达清晰，但偶有跑题"},
+            "learning": {"score": 88, "comment": "持续学习，关注新技术"},
+            "teamwork": {"score": 82, "comment": "有团队协作经验，主动性一般"},
+            "culture_fit": {"score": 78, "comment": "价值观基本匹配"}
+        },
+        "total_score": 84.7,
+        "recommendation": "推荐",
+        "ai_comment": "张三是一位有5年经验的Java工程师，技术功底扎实，尤其在微服务架构方面有丰富的实战经验。面试中展示了清晰的逻辑思维和问题解决能力。沟通表达整体良好，但在描述复杂问题时偶有跑题。建议录用，可安排到核心系统开发岗位。需要关注其团队协作的主动性，入职后可适当引导。",
+        "key_strengths": ["微服务架构实战经验", "逻辑思维清晰"],
+        "improvement_areas": ["系统设计视野", "团队主动性"],
+        "hiring_suggestion": "建议录用。候选人技术能力符合岗位要求，建议安排技术终面确认系统设计能力。"
+    }
+}
+
+六、评价结果展示
+6.1 雷达图数据
+// ECharts雷达图配置
+{
+    radar: {
+        indicator: [
+            { name: '专业能力', max: 100 },
+            { name: '逻辑思维', max: 100 },
+            { name: '沟通表达', max: 100 },
+            { name: '学习能力', max: 100 },
+            { name: '团队协作', max: 100 },
+            { name: '文化匹配', max: 100 }
+        ]
+    },
+    series: [{
+        type: 'radar',
+        data: [{
+            value: [85, 90, 80, 88, 82, 78],
+            name: '张三'
+        }]
+    }]
+}
+
+七、关联页面
+页面	说明
+P12-面试评价页	面试评价功能页面

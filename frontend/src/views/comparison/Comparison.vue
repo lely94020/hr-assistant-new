@@ -15,11 +15,12 @@
             filterable
             placeholder="请选择要对比的岗位"
             style="width: 100%"
+            @change="handlePositionChange"
           >
             <el-option
               v-for="item in positionList"
               :key="item.id"
-              :label="item.name"
+              :label="item.position_name"
               :value="item.id"
             />
           </el-select>
@@ -36,7 +37,7 @@
             <el-option
               v-for="item in candidateList"
               :key="item.id"
-              :label="item.name"
+              :label="item.candidate_name"
               :value="item.id"
             />
           </el-select>
@@ -44,6 +45,7 @@
         <el-col :span="8">
           <el-button
             type="primary"
+            :loading="comparing"
             :disabled="searchForm.candidateIds.length < 2"
             @click="startCompare"
           >
@@ -74,16 +76,15 @@
           />
           <el-table-column
             v-for="candidate in comparisonData.candidates"
-            :key="candidate.id"
+            :key="candidate.resume_id"
             :label="candidate.name"
             align="center"
           >
             <template #default="scope">
-              <!-- 最优项高亮 -->
               <div
                 :class="[
                   'cell-content',
-                  isBestItem(scope.row.prop, candidate.id) ? 'best-cell' : ''
+                  isBestItem(scope.row.prop, candidate.resume_id) ? 'best-cell' : ''
                 ]"
               >
                 {{ getCellValue(scope.row.prop, candidate) }}
@@ -95,12 +96,10 @@
 
       <!-- 区域2：评分对比（图表切换） -->
       <el-card class="result-card" shadow="never" title="能力维度评分对比">
-        <!-- 图表类型切换 -->
         <el-radio-group v-model="chartType" class="chart-switch">
           <el-radio value="bar">柱状图对比</el-radio>
           <el-radio value="radar">雷达图叠加</el-radio>
         </el-radio-group>
-        <!-- 图表容器 -->
         <div ref="chartRef" class="chart-container"></div>
       </el-card>
 
@@ -108,12 +107,11 @@
       <el-card class="result-card" shadow="never" title="综合得分排名">
         <div class="rank-list">
           <div
-            v-for="(item, index) in comparisonData.rankList"
-            :key="item.id"
+            v-for="(item, index) in rankingList"
+            :key="index"
             class="rank-item"
           >
             <div class="rank-num">
-              <!-- 金银铜图标 -->
               <el-icon
                 v-if="index === 0"
                 color="#ffd700"
@@ -133,7 +131,7 @@
             </div>
             <div class="rank-info">
               <div class="name">{{ item.name }}</div>
-              <div class="score">综合得分：{{ item.totalScore }}分</div>
+              <div class="score">综合得分：{{ item.score }}分</div>
               <div class="reason">{{ item.reason }}</div>
             </div>
           </div>
@@ -142,48 +140,66 @@
 
       <!-- 3. AI对比分析区 -->
       <el-card class="result-card" shadow="never" title="AI智能对比分析">
-        <!-- 候选人分析标签页 -->
-        <el-tabs v-model="activeTab" class="ai-tabs">
-          <el-tab-pane
-            v-for="candidate in comparisonData.candidates"
-            :key="candidate.id"
-            :label="candidate.name"
-          >
-            <div class="analysis-item">
-              <div class="analysis-box">
-                <h4><el-icon color="#67c23a"><Check /></el-icon> 相对优势</h4>
-                <ul class="green-list">
-                  <li v-for="(adv, i) in candidate.analysis.advantages" :key="i">
-                    {{ adv }}
-                  </li>
-                </ul>
-              </div>
-              <div class="analysis-box">
-                <h4><el-icon color="#e6a23c"><Warning /></el-icon> 相对劣势</h4>
-                <ul class="orange-list">
-                  <li v-for="(dis, i) in candidate.analysis.disadvantages" :key="i">
-                    {{ dis }}
-                  </li>
-                </ul>
-              </div>
-              <div class="analysis-box">
-                <h4>适合场景</h4>
-                <p class="text">{{ candidate.analysis.fitScene }}</p>
-              </div>
-              <div class="analysis-box">
-                <h4>录用风险</h4>
-                <p class="text">{{ candidate.analysis.risk }}</p>
-              </div>
-            </div>
-          </el-tab-pane>
-        </el-tabs>
+        <el-button
+          type="primary"
+          :loading="analyzing"
+          :disabled="hasAiAnalysis"
+          @click="handleAiAnalyze"
+        >
+          {{ hasAiAnalysis ? '已生成AI分析' : '生成AI对比分析' }}
+        </el-button>
 
-        <!-- AI推荐结论 -->
-        <div class="recommend-box">
-          <h3>AI最终推荐结论</h3>
-          <p><strong>最佳人选：</strong>{{ comparisonData.recommend.best }}</p>
-          <p><strong>备选人选：</strong>{{ comparisonData.recommend.second }}</p>
-          <p class="final-suggestion">{{ comparisonData.recommend.suggestion }}</p>
+        <div v-if="hasAiAnalysis" class="ai-analysis-content">
+          <el-alert
+            :title="aiAnalysis.comparison_summary"
+            type="info"
+            :closable="false"
+            style="margin-bottom: 20px"
+          />
+
+          <el-tabs v-model="activeTab" class="ai-tabs">
+            <el-tab-pane
+              v-for="(analysis, index) in aiAnalysis.candidate_analysis"
+              :key="index"
+              :label="analysis.name"
+            >
+              <div class="analysis-item">
+                <div class="analysis-box">
+                  <h4><el-icon color="#67c23a"><Check /></el-icon> 相对优势</h4>
+                  <ul class="green-list">
+                    <li v-for="(adv, i) in analysis.advantages_over_others" :key="i">
+                      {{ adv }}
+                    </li>
+                  </ul>
+                </div>
+                <div class="analysis-box">
+                  <h4><el-icon color="#e6a23c"><Warning /></el-icon> 相对劣势</h4>
+                  <ul class="orange-list">
+                    <li v-for="(dis, i) in analysis.disadvantages" :key="i">
+                      {{ dis }}
+                    </li>
+                  </ul>
+                </div>
+                <div class="analysis-box">
+                  <h4>适合场景</h4>
+                  <p class="text">{{ analysis.suitable_scenarios }}</p>
+                </div>
+                <div class="analysis-box">
+                  <h4>录用风险</h4>
+                  <p class="text">{{ analysis.risk_points }}</p>
+                </div>
+              </div>
+            </el-tab-pane>
+          </el-tabs>
+
+          <div class="recommend-box">
+            <h3>AI最终推荐结论</h3>
+            <p><strong>最佳人选：</strong>{{ aiAnalysis.recommendation.best_choice }}</p>
+            <p class="text">{{ aiAnalysis.recommendation.reason }}</p>
+            <p><strong>备选人选：</strong>{{ aiAnalysis.recommendation.alternative }}</p>
+            <p class="text">{{ aiAnalysis.recommendation.alternative_reason }}</p>
+            <p class="final-suggestion">{{ aiAnalysis.hiring_advice }}</p>
+          </div>
         </div>
       </el-card>
     </div>
@@ -195,10 +211,10 @@
 
     <!-- 4. 底部操作栏 -->
     <div class="bottom-operate">
-      <el-button type="primary" :disabled="!comparisonData">
+      <el-button type="primary" :disabled="!comparisonData" @click="handleExport">
         导出对比报告(PDF)
       </el-button>
-      <el-button type="success" :disabled="!comparisonData">
+      <el-button type="success" :disabled="!comparisonData" @click="handleSave">
         保存对比结果
       </el-button>
     </div>
@@ -206,168 +222,320 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Trophy, Medal, Star, Check, Warning } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
+import { getPositionList } from '@/api/position'
+import { getResumeList } from '@/api/resume'
+import {
+  createComparison,
+  analyzeComparison,
+  exportComparisonReport
+} from '@/api/comparison'
 
-// 基础数据
-const positionList = ref([
-  { id: 1, name: '高级前端开发工程师' },
-  { id: 2, name: 'Java开发工程师' },
-  { id: 3, name: '产品经理' }
-])
-const candidateList = ref([
-  { id: 1, name: '张三', education: '本科/北京大学', workYear: 5, company: '阿里', job: '前端开发', skills: ['Vue3', 'React', 'TS', 'Vite', '优化'], totalScore: 88 },
-  { id: 2, name: '李四', education: '硕士/清华大学', workYear: 3, company: '腾讯', job: '前端开发', skills: ['Vue3', 'TS', '微前端', '工程化'], totalScore: 85 },
-  { id: 3, name: '王五', education: '本科/浙江大学', workYear: 4, company: '百度', job: '前端开发', skills: ['React', 'Node', '性能优化'], totalScore: 82 }
-])
+const positionList = ref([])
+const candidateList = ref([])
 
-// 搜索表单
 const searchForm = reactive({
   positionId: '',
   candidateIds: []
 })
 
-// 对比状态
 const comparisonData = ref(null)
-const chartType = ref('bar') // bar/radar
-const activeTab = ref(1)
+const chartType = ref('bar')
+const activeTab = ref(0)
 const chartRef = ref(null)
 let myChart = null
 
-// 表格列配置（基础信息对比项）
+const comparing = ref(false)
+const analyzing = ref(false)
+const aiAnalysis = ref(null)
+
 const tableColumns = ref([
   { prop: 'name', label: '姓名' },
-  { prop: 'education', label: '学历/院校' },
-  { prop: 'workYear', label: '工作年限' },
-  { prop: 'company', label: '当前公司' },
-  { prop: 'job', label: '当前职位' },
-  { prop: 'skills', label: '技能标签' }
+  { prop: 'education', label: '学历' },
+  { prop: 'school', label: '院校' },
+  { prop: 'major', label: '专业' },
+  { prop: 'work_years', label: '工作年限' },
+  { prop: 'current_company', label: '当前公司' },
+  { prop: 'current_position', label: '当前职位' },
+  { prop: 'skills', label: '技能标签' },
+  { prop: 'total_score', label: '综合得分' }
 ])
 
-// 维度评分（6个核心维度）
 const dimensionList = ['专业能力', '逻辑思维', '沟通表达', '学习能力', '团队协作', '文化匹配']
 
-// ==================== 核心方法 ====================
-// 开始对比
-const startCompare = () => {
+const hasAiAnalysis = computed(() => {
+  return aiAnalysis.value !== null
+})
+
+const rankingList = computed(() => {
+  if (!aiAnalysis.value || !aiAnalysis.value.ranking) {
+    return []
+  }
+  return aiAnalysis.value.ranking.sort((a, b) => a.rank - b.rank)
+})
+
+const loadPositions = async () => {
+  try {
+    const res = await getPositionList({ page: 1, page_size: 100 })
+    positionList.value = res.items || []
+  } catch (error) {
+    console.error('加载岗位列表失败:', error)
+  }
+}
+
+const handlePositionChange = async () => {
+  searchForm.candidateIds = []
+  candidateList.value = []
+
+  if (!searchForm.positionId) return
+
+  try {
+    const res = await getResumeList({
+      position_id: searchForm.positionId,
+      page: 1,
+      page_size: 100
+    })
+    candidateList.value = res.items || []
+  } catch (error) {
+    console.error('加载候选人列表失败:', error)
+    ElMessage.error('加载候选人列表失败')
+  }
+}
+
+const startCompare = async () => {
   if (!searchForm.positionId) {
     return ElMessage.warning('请选择对比岗位')
   }
-  // 筛选选中的候选人
-  const selected = candidateList.value.filter(item =>
-    searchForm.candidateIds.includes(item.id)
-  )
-  // 构造对比数据
-  comparisonData.value = {
-    candidates: selected.map(item => ({
-      ...item,
-      scores: [88, 85, 90, 82, 86, 79], // 维度分数
-      analysis: {
-        advantages: item.id === 1 ? ['技术栈全面', '经验丰富'] : item.id === 2 ? ['学历高', '学习能力强'] : ['性能优化精通', '稳定性好'],
-        disadvantages: item.id === 1 ? ['学历一般'] : item.id === 2 ? ['经验较少'] : ['技术广度不足'],
-        fitScene: '负责核心业务模块开发',
-        risk: '无重大风险'
-      }
-    })),
-    // 排名数据
-    rankList: [...selected].sort((a, b) => b.totalScore - a.totalScore).map(item => ({
-      id: item.id,
-      name: item.name,
-      totalScore: item.totalScore,
-      reason: item.id === 1 ? '技术全面，经验匹配度最高' : item.id === 2 ? '学历优秀，潜力大' : '专项能力突出'
-    })),
-    // AI推荐
-    recommend: {
-      best: '张三（综合得分最高，技术栈完全匹配）',
-      second: '李四（学历优秀，学习能力强）',
-      suggestion: '张三为最佳录用人选，技术能力、工作经验完全满足岗位要求，可快速上手工作；李四作为优质备选，培养潜力巨大。两人均符合岗位录用标准，建议优先录用张三。'
-    }
+
+  if (searchForm.candidateIds.length < 2) {
+    return ElMessage.warning('至少选择2个候选人')
   }
-  // 初始化图表
-  nextTick(() => initChart())
-  ElMessage.success('对比完成！')
+
+  comparing.value = true
+  try {
+    const res = await createComparison(
+      searchForm.positionId,
+      searchForm.candidateIds
+    )
+
+    comparisonData.value = res
+
+    aiAnalysis.value = null
+
+    nextTick(() => initChart())
+    ElMessage.success('对比创建成功！')
+  } catch (error) {
+    console.error('创建对比失败:', error)
+    ElMessage.error(error.response?.data?.detail || '创建对比失败')
+  } finally {
+    comparing.value = false
+  }
 }
 
-// 重置对比
+const handleAiAnalyze = async () => {
+  if (!comparisonData.value) return
+
+  analyzing.value = true
+  try {
+    const res = await analyzeComparison(comparisonData.value.id)
+    aiAnalysis.value = res
+    ElMessage.success('AI分析生成成功！')
+  } catch (error) {
+    console.error('AI分析失败:', error)
+    ElMessage.error(error.response?.data?.detail || 'AI分析失败')
+  } finally {
+    analyzing.value = false
+  }
+}
+
 const resetCompare = () => {
   searchForm.positionId = ''
   searchForm.candidateIds = []
   comparisonData.value = null
+  aiAnalysis.value = null
+  candidateList.value = []
+  if (myChart) {
+    myChart.dispose()
+    myChart = null
+  }
 }
 
-// 获取单元格值
 const getCellValue = (prop, candidate) => {
-  if (prop === 'skills') return candidate.skills.join('、')
-  if (prop === 'workYear') return candidate[prop] + '年'
-  return candidate[prop]
+  if (prop === 'skills') {
+    return candidate.skills && candidate.skills.length > 0
+      ? candidate.skills.join('、')
+      : '-'
+  }
+  if (prop === 'work_years') {
+    return candidate[prop] ? candidate[prop] + '年' : '-'
+  }
+  if (prop === 'total_score') {
+    return candidate.evaluation ? candidate.evaluation.total_score : '-'
+  }
+  return candidate[prop] || '-'
 }
 
-// 最优项高亮判断
-const isBestItem = (prop, id) => {
-  if (!comparisonData.value) return false
+const isBestItem = (prop, resumeId) => {
+  if (!comparisonData.value || !comparisonData.value.candidates) return false
+
   const candidates = comparisonData.value.candidates
-  if (prop === 'workYear') {
-    const max = Math.max(...candidates.map(i => i.workYear))
-    return candidates.find(i => i.id === id).workYear === max
+
+  if (prop === 'work_years') {
+    const values = candidates.map(c => c.work_years || 0)
+    const max = Math.max(...values)
+    const candidate = candidates.find(c => c.resume_id === resumeId)
+    return candidate && candidate.work_years === max && max > 0
   }
-  if (prop === 'totalScore') {
-    const max = Math.max(...candidates.map(i => i.totalScore))
-    return candidates.find(i => i.id === id).totalScore === max
+
+  if (prop === 'total_score') {
+    const validCandidates = candidates.filter(c => c.evaluation)
+    if (validCandidates.length === 0) return false
+
+    const values = validCandidates.map(c => c.evaluation.total_score)
+    const max = Math.max(...values)
+    const candidate = validCandidates.find(c => c.resume_id === resumeId)
+    return candidate && candidate.evaluation.total_score === max
   }
+
   return false
 }
 
-// ==================== ECharts 图表 ====================
 const initChart = () => {
-  if (!chartRef.value) return
+  if (!chartRef.value || !comparisonData.value) return
   if (myChart) myChart.dispose()
   myChart = echarts.init(chartRef.value)
 
-  const candidates = comparisonData.value.candidates
-  const names = candidates.map(i => i.name)
-  const scoreData = candidates.map(i => i.scores)
+  const candidates = comparisonData.value.candidates.filter(c => c.evaluation)
+  const names = candidates.map(c => c.name)
+
+  if (names.length === 0) {
+    ElMessage.warning('暂无评价数据，无法生成图表')
+    return
+  }
+
+  const scoreData = candidates.map(c => [
+    c.evaluation.professional_score,
+    c.evaluation.logic_score,
+    c.evaluation.communication_score,
+    c.evaluation.learning_score,
+    c.evaluation.teamwork_score,
+    c.evaluation.culture_score
+  ])
 
   let option = {}
   if (chartType.value === 'bar') {
-    // 柱状图配置
     option = {
-      legend: { data: dimensionList },
-      xAxis: { type: 'category', data: names },
-      yAxis: { type: 'value', min: 0, max: 100 },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' }
+      },
+      legend: {
+        data: dimensionList,
+        bottom: 0
+      },
+      grid: {
+        left: '3%',
+        right: '4%',
+        bottom: '15%',
+        containLabel: true
+      },
+      xAxis: {
+        type: 'category',
+        data: names,
+        axisLabel: {
+          interval: 0,
+          rotate: 30
+        }
+      },
+      yAxis: {
+        type: 'value',
+        min: 0,
+        max: 100,
+        name: '分数'
+      },
       series: dimensionList.map((item, index) => ({
         name: item,
         type: 'bar',
-        data: scoreData.map(item => item[index])
+        data: scoreData.map(scores => scores[index]),
+        emphasis: {
+          focus: 'series'
+        }
       }))
     }
   } else {
-    // 雷达图配置
     option = {
-      legend: { data: names, bottom: 0 },
-      radar: {
-        indicator: dimensionList.map(item => ({ name: item, max: 100 })),
-        radius: '70%'
+      tooltip: {
+        trigger: 'item'
       },
-      series: candidates.map((item, index) => ({
-        name: item.name,
-        type: 'radar',
-        data: item.scores,
-        areaStyle: { opacity: 0.2 }
-      }))
+      legend: {
+        data: names,
+        bottom: 0
+      },
+      radar: {
+        indicator: dimensionList.map(item => ({
+          name: item,
+          max: 100
+        })),
+        radius: '65%'
+      },
+      series: candidates.map((candidate, index) => {
+        const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de']
+        return {
+          name: candidate.name,
+          type: 'radar',
+          data: candidate.evaluation ? [
+            candidate.evaluation.professional_score,
+            candidate.evaluation.logic_score,
+            candidate.evaluation.communication_score,
+            candidate.evaluation.learning_score,
+            candidate.evaluation.teamwork_score,
+            candidate.evaluation.culture_score
+          ] : [],
+          areaStyle: { opacity: 0.2 },
+          lineStyle: {
+            color: colors[index % colors.length]
+          },
+          itemStyle: {
+            color: colors[index % colors.length]
+          }
+        }
+      })
     }
   }
   myChart.setOption(option)
-  window.addEventListener('resize', () => myChart.resize())
 }
 
-// 监听图表类型切换
-watch(chartType, () => initChart())
+watch(chartType, () => {
+  nextTick(() => initChart())
+})
 
-// 窗口适配
+const handleExport = async () => {
+  if (!comparisonData.value) return
+
+  try {
+    const res = await exportComparisonReport(comparisonData.value.id)
+    ElMessage.info(res.message || 'PDF导出功能开发中')
+  } catch (error) {
+    console.error('导出失败:', error)
+    ElMessage.error('导出失败')
+  }
+}
+
+const handleSave = () => {
+  ElMessage.success('对比结果已保存')
+}
+
 onMounted(() => {
-  window.addEventListener('resize', () => myChart?.resize())
+  loadPositions()
+})
+
+onUnmounted(() => {
+  if (myChart) {
+    myChart.dispose()
+  }
 })
 </script>
 
@@ -377,17 +545,14 @@ onMounted(() => {
   padding-bottom: 80px;
 }
 
-/* 面包屑 */
 .breadcrumb {
   margin-bottom: 16px;
 }
 
-/* 顶部选择卡片 */
 .search-card {
   margin-bottom: 20px;
 }
 
-/* 结果卡片 */
 .result-wrapper {
   display: flex;
   flex-direction: column;
@@ -397,7 +562,6 @@ onMounted(() => {
   margin-bottom: 0;
 }
 
-/* 表格样式 */
 .table-header {
   background: #f5f7fa;
   font-weight: 600;
@@ -409,14 +573,12 @@ onMounted(() => {
   padding: 4px 8px;
   border-radius: 4px;
 }
-/* 最优项高亮 */
 .best-cell {
   background-color: #f0f9eb;
   color: #67c23a;
   font-weight: 500;
 }
 
-/* 图表容器 */
 .chart-switch {
   margin-bottom: 15px;
 }
@@ -425,7 +587,6 @@ onMounted(() => {
   height: 400px;
 }
 
-/* 排名列表 */
 .rank-list {
   display: flex;
   flex-direction: column;
@@ -463,7 +624,10 @@ onMounted(() => {
   color: #909399;
 }
 
-/* AI分析区 */
+.ai-analysis-content {
+  margin-top: 20px;
+}
+
 .ai-tabs {
   margin-bottom: 20px;
 }
@@ -506,7 +670,6 @@ onMounted(() => {
   margin: 0;
 }
 
-/* 推荐结论 */
 .recommend-box {
   padding: 16px;
   background: #f5f7fa;
@@ -525,13 +688,11 @@ onMounted(() => {
   font-weight: 500;
 }
 
-/* 空状态 */
 .empty-wrapper {
   padding: 60px 0;
   text-align: center;
 }
 
-/* 底部操作栏 */
 .bottom-operate {
   position: fixed;
   bottom: 0;

@@ -7,6 +7,8 @@ from app.models.user import SysUser, UserToken
 from app.models.resume import Resume
 from app.models.recording import InterviewRecording
 from app.models.interview_summary import InterviewSummary
+from app.models.interview_evaluation import InterviewEvaluation
+from app.models.comparison import CandidateComparison
 from app.api.v1.position import router as position_router
 from app.api.v1.login import router as login_router
 from app.api.v1.resume import router as resume_router
@@ -14,6 +16,9 @@ from app.api.v1.screening import router as screening_router
 from app.api.v1.question import router as question_router
 from app.api.v1.recording import router as recording_router
 from app.api.v1.interview_summary import router as summary_router
+from app.api.v1.interview_evaluation import router as evaluation_router
+from app.api.v1.comparison import router as comparison_router
+from app.api.v1.dashboard import router as dashboard_router
 import os
 
 app = FastAPI(
@@ -37,6 +42,7 @@ if not os.path.exists(UPLOAD_DIR):
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # 注册路由
+app.include_router(dashboard_router)
 app.include_router(position_router)
 app.include_router(login_router)
 app.include_router(resume_router)
@@ -44,6 +50,8 @@ app.include_router(screening_router)
 app.include_router(question_router)
 app.include_router(recording_router)
 app.include_router(summary_router)
+app.include_router(evaluation_router)
+app.include_router(comparison_router)
 
 @app.on_event("startup")
 # 自动创建数据库表

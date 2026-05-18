@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
@@ -172,20 +172,19 @@ def batch_download_resumes(request: BatchDownloadRequest, db: Session = Depends(
     """批量下载简历（ZIP包）"""
     from fastapi.responses import StreamingResponse
 
-    # 获取所有选中的简历
-    resumes = []
-    for resume_id in request.resume_ids:
-        resume = resume_crud.get_resume(db, resume_id)
-        if resume and os.path.exists(resume.file_path):
-            resumes.append(resume)
+    # 一次性批量查询所有简历
+    resumes = resume_crud.get_resumes_by_ids(db, request.resume_ids)
 
-    if not resumes:
+    # 过滤出文件存在的简历
+    valid_resumes = [r for r in resumes if os.path.exists(r.file_path)]
+
+    if not valid_resumes:
         raise HTTPException(status_code=404, detail="没有可下载的简历")
 
     # 创建ZIP文件
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-        for resume in resumes:
+        for resume in valid_resumes:
             zip_file.write(resume.file_path, resume.file_name)
 
     zip_buffer.seek(0)
@@ -198,52 +197,50 @@ def batch_download_resumes(request: BatchDownloadRequest, db: Session = Depends(
 
 
 @router.delete("/{resume_id}", summary="删除简历")
-def delete_resume(resume_id: int, db: Session = Depends(get_db)):
+def delete_resume(
+    resume_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
     """删除简历及关联数据"""
     resume = resume_crud.get_resume(db, resume_id)
     if not resume:
         raise HTTPException(status_code=404, detail="简历不存在")
-    
-    # 先获取milvus_id再删除
+
     milvus_id = resume.milvus_id
-    
+
     success = resume_crud.delete_resume(db, resume_id)
     if not success:
         raise HTTPException(status_code=404, detail="简历不存在")
 
-    # 同时删除Milvus中的向量数据
+    # 异步删除 Milvus 向量，不阻塞响应
     if milvus_id:
-        try:
-            ResumeService.delete_milvus_vector(milvus_id)
-        except Exception as e:
-            print(f"删除Milvus向量失败: {str(e)}")
+        background_tasks.add_task(ResumeService.delete_milvus_vector, milvus_id)
 
     return {"message": "删除成功"}
 
 
 @router.post("/batch-delete", summary="批量删除简历")
-def batch_delete_resumes(request: BatchDeleteRequest, db: Session = Depends(get_db)):
+def batch_delete_resumes(
+    request: BatchDeleteRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
     """批量删除多个简历"""
     if not request.resume_ids:
         raise HTTPException(status_code=400, detail="请选择要删除的简历")
-    
-    # 获取所有简历的milvus_id
-    milvus_ids = []
-    for resume_id in request.resume_ids:
-        resume = resume_crud.get_resume(db, resume_id)
-        if resume and resume.milvus_id:
-            milvus_ids.append(resume.milvus_id)
-    
+
+    # 一次性批量查询所有简历，收集 Milvus ID
+    resumes = resume_crud.get_resumes_by_ids(db, request.resume_ids)
+    milvus_ids = [r.milvus_id for r in resumes if r.milvus_id]
+
     # 批量删除数据库记录
     count = resume_crud.batch_delete_resumes(db, request.resume_ids)
-    
-    # 批量删除Milvus向量
-    for milvus_id in milvus_ids:
-        try:
-            ResumeService.delete_milvus_vector(milvus_id)
-        except Exception as e:
-            print(f"删除Milvus向量失败: {str(e)}")
-    
+
+    # 异步批量删除 Milvus 向量，不阻塞响应
+    if milvus_ids:
+        background_tasks.add_task(ResumeService.batch_delete_milvus_vectors, milvus_ids)
+
     return {
         "message": f"成功删除{count}份简历",
         "deleted_count": count

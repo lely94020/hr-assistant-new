@@ -157,8 +157,8 @@ class ResumeService:
             # 创建链：Prompt -> LLM -> JSON解析
             chain = prompt | llm | JsonOutputParser()
             
-            # 调用AI提取信息
-            extracted_info = chain.invoke({"text": text_content[:5000]})
+            # 调用AI提取信息（使用异步方法）
+            extracted_info = await chain.ainvoke({"text": text_content[:5000]})
             
             # 数据清洗和验证
             extracted_info = ResumeService._clean_extracted_data(extracted_info)

@@ -1,6 +1,6 @@
 from sqlalchemy import Column, BigInteger, String, Text, Integer, SmallInteger, DateTime
 from sqlalchemy.sql import func
-from app.database import Base
+from app.db.database import Base
 
 class JobPosition(Base):
     """岗位表"""

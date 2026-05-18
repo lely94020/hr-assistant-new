@@ -154,3 +154,13 @@ def batch_delete_resumes(db: Session, resume_ids: List[int]) -> int:
     ).update({Resume.is_deleted: 1}, synchronize_session=False)
     db.commit()
     return count
+
+
+def get_resumes_by_ids(db: Session, resume_ids: List[int]) -> List[Resume]:
+    """根据 ID 列表批量获取简历"""
+    if not resume_ids:
+        return []
+    return db.query(Resume).filter(
+        Resume.id.in_(resume_ids),
+        Resume.is_deleted == 0
+    ).all()

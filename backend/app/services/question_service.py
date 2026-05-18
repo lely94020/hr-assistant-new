@@ -204,8 +204,8 @@ class QuestionService:
                 "with_answer": "是" if with_answer else "否"
             }
 
-            # 调用AI
-            response = chain.invoke(input_data)
+            # 调用AI（使用异步方法）
+            response = await chain.ainvoke(input_data)
 
             # 解析返回结果
             if isinstance(response, dict) and "questions" in response:

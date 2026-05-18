@@ -169,7 +169,8 @@ class ScreeningService:
                 "resume_summary": resume.resume_summary or ""
             }
             
-            analysis = chain.invoke(analysis_data)
+            # 使用异步调用，避免阻塞事件循环
+            analysis = await chain.ainvoke(analysis_data)
             
             # 验证返回结果格式
             if not isinstance(analysis, dict):
@@ -261,63 +262,76 @@ class ScreeningService:
         
         # 6. 处理检索结果
         matched_resumes = []
+        
+        # 收集所有 resume_id
+        resume_ids = []
         for hits in results:
             for hit in hits:
                 resume_id = hit.entity.get("resume_id")
-                similarity = hit.score
-                
-                # 从数据库获取简历详情
-                resume = db.query(Resume).filter(
-                    Resume.id == resume_id,
-                    Resume.is_deleted == 0
-                ).first()
-                
-                if resume:
-                    # 应用筛选条件
-                    if filters:
-                        min_education = filters.get("min_education")
-                        min_work_years = filters.get("min_work_years")
-                        required_skills = filters.get("required_skills", [])
-                        
-                        # 学历过滤
-                        if min_education and resume.education:
-                            education_levels = ["大专", "本科", "硕士", "博士"]
-                            if resume.education not in education_levels or min_education not in education_levels:
-                                pass  # 如果学历不在预期列表中，跳过此过滤
-                            elif education_levels.index(resume.education) < education_levels.index(min_education):
-                                continue
-                        
-                        # 工作年限过滤
-                        if min_work_years is not None and resume.work_years is not None:
-                            if resume.work_years < min_work_years:
-                                continue
-                        
-                        # 必备技能过滤
-                        if required_skills and resume.skills:
-                            has_all_skills = all(
-                                any(req_skill.lower() in s.lower() for s in resume.skills)
-                                for req_skill in required_skills
-                            )
-                            if not has_all_skills:
-                                continue
+                if resume_id:
+                    resume_ids.append(resume_id)
+        
+        # 批量查询简历，避免 N+1 问题
+        if resume_ids:
+            resumes_dict = {r.id: r for r in db.query(Resume).filter(
+                Resume.id.in_(resume_ids),
+                Resume.is_deleted == 0
+            ).all()}
+            
+            for hits in results:
+                for hit in hits:
+                    resume_id = hit.entity.get("resume_id")
+                    similarity = hit.score
                     
-                    # 计算匹配分数
-                    match_score = ScreeningService._calculate_match_score(
-                        similarity, resume,
-                        filters.get("min_education") if filters else None,
-                        filters.get("min_work_years") if filters else None,
-                        filters.get("required_skills") if filters else None
-                    )
+                    # 从字典中获取简历详情
+                    resume = resumes_dict.get(resume_id)
                     
-                    # 获取推荐等级
-                    recommendation = ScreeningService._get_recommendation_level(match_score)
-                    
-                    matched_resumes.append({
-                        "resume": resume,
-                        "similarity": similarity,
-                        "match_score": match_score,
-                        "recommendation": recommendation
-                    })
+                    if resume:
+                        # 应用筛选条件
+                        if filters:
+                            min_education = filters.get("min_education")
+                            min_work_years = filters.get("min_work_years")
+                            required_skills = filters.get("required_skills", [])
+                            
+                            # 学历过滤
+                            if min_education and resume.education:
+                                education_levels = ["大专", "本科", "硕士", "博士"]
+                                if resume.education not in education_levels or min_education not in education_levels:
+                                    pass  # 如果学历不在预期列表中，跳过此过滤
+                                elif education_levels.index(resume.education) < education_levels.index(min_education):
+                                    continue
+                            
+                            # 工作年限过滤
+                            if min_work_years is not None and resume.work_years is not None:
+                                if resume.work_years < min_work_years:
+                                    continue
+                            
+                            # 必备技能过滤
+                            if required_skills and resume.skills:
+                                has_all_skills = all(
+                                    any(req_skill.lower() in s.lower() for s in resume.skills)
+                                    for req_skill in required_skills
+                                )
+                                if not has_all_skills:
+                                    continue
+                        
+                        # 计算匹配分数
+                        match_score = ScreeningService._calculate_match_score(
+                            similarity, resume,
+                            filters.get("min_education") if filters else None,
+                            filters.get("min_work_years") if filters else None,
+                            filters.get("required_skills") if filters else None
+                        )
+                        
+                        # 获取推荐等级
+                        recommendation = ScreeningService._get_recommendation_level(match_score)
+                        
+                        matched_resumes.append({
+                            "resume": resume,
+                            "similarity": similarity,
+                            "match_score": match_score,
+                            "recommendation": recommendation
+                        })
         
         # 7. 按匹配分数排序
         matched_resumes.sort(key=lambda x: x["match_score"], reverse=True)
@@ -409,27 +423,41 @@ class ScreeningService:
         
         # 5. 处理检索结果
         matched_resumes = []
+        
+        # 收集所有 resume_id
+        resume_ids = []
         for hits in results:
             for hit in hits:
                 resume_id = hit.entity.get("resume_id")
-                similarity = hit.score
-                
-                resume = db.query(Resume).filter(
-                    Resume.id == resume_id,
-                    Resume.is_deleted == 0
-                ).first()
-                
-                if resume:
-                    # 对于自定义查询，简化评分计算
-                    match_score = round(max(0, min(1, similarity)) * 100, 2)
-                    recommendation = ScreeningService._get_recommendation_level(match_score)
+                if resume_id:
+                    resume_ids.append(resume_id)
+        
+        # 批量查询简历，避免 N+1 问题
+        if resume_ids:
+            resumes_dict = {r.id: r for r in db.query(Resume).filter(
+                Resume.id.in_(resume_ids),
+                Resume.is_deleted == 0
+            ).all()}
+            
+            for hits in results:
+                for hit in hits:
+                    resume_id = hit.entity.get("resume_id")
+                    similarity = hit.score
                     
-                    matched_resumes.append({
-                        "resume": resume,
-                        "similarity": similarity,
-                        "match_score": match_score,
-                        "recommendation": recommendation
-                    })
+                    # 从字典中获取简历详情
+                    resume = resumes_dict.get(resume_id)
+                    
+                    if resume:
+                        # 对于自定义查询，简化评分计算
+                        match_score = round(max(0, min(1, similarity)) * 100, 2)
+                        recommendation = ScreeningService._get_recommendation_level(match_score)
+                        
+                        matched_resumes.append({
+                            "resume": resume,
+                            "similarity": similarity,
+                            "match_score": match_score,
+                            "recommendation": recommendation
+                        })
         
         # 6. 按匹配分数排序
         matched_resumes.sort(key=lambda x: x["match_score"], reverse=True)
@@ -508,6 +536,10 @@ class ScreeningService:
         
         if mark_type not in status_map:
             raise Exception("无效的标记类型，只能是 pass/reject/pending")
+        
+        # 防御：空列表检查
+        if not resume_ids:
+            raise Exception("简历ID列表不能为空")
         
         new_status = status_map[mark_type]
         

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
-from app.database import get_db
+from app.db.database import get_db
 from app.schemas.position import (
     PositionCreate, PositionUpdate, PositionResponse, PositionListResponse
 )
@@ -41,7 +41,10 @@ def get_position(position_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=PositionResponse, summary="创建岗位")
 def create_position(position: PositionCreate, db: Session = Depends(get_db)):
     """创建新岗位"""
-    return PositionResponse.model_validate(crud.create_position(db, position))
+    try:
+        return PositionResponse.model_validate(crud.create_position(db, position))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{position_id}", response_model=PositionResponse, summary="更新岗位")
 def update_position(
@@ -50,10 +53,13 @@ def update_position(
     db: Session = Depends(get_db)
 ):
     """更新岗位信息"""
-    db_position = crud.update_position(db, position_id, position)
-    if not db_position:
-        raise HTTPException(status_code=404, detail="岗位不存在")
-    return PositionResponse.model_validate(db_position)
+    try:
+        db_position = crud.update_position(db, position_id, position)
+        if not db_position:
+            raise HTTPException(status_code=404, detail="岗位不存在")
+        return PositionResponse.model_validate(db_position)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{position_id}", summary="删除岗位")
 def delete_position(position_id: int, db: Session = Depends(get_db)):

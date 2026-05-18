@@ -1,6 +1,6 @@
 from sqlalchemy import Column, BigInteger, Integer, String, Text, DateTime, DECIMAL, JSON, ForeignKey
 from sqlalchemy.sql import func
-from app.database import Base
+from app.db.database import Base
 
 
 class InterviewEvaluation(Base):

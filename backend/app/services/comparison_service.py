@@ -120,7 +120,7 @@ class ComparisonService:
             )
 
             chain = prompt | llm | JsonOutputParser()
-            analysis_result = chain.invoke({})
+            analysis_result = await chain.ainvoke({})
 
             # 验证返回结果
             ComparisonService._validate_analysis_result(analysis_result, candidates)

@@ -26,13 +26,18 @@ class ScreeningService:
     MILVUS_HOST = "localhost"
     MILVUS_PORT = "19530"
     COLLECTION_NAME = "resumes"
+    _milvus_initialized = False
     
     @staticmethod
     def _init_milvus():
-        """初始化Milvus连接"""
+        """初始化Milvus连接（单例模式，避免重复连接）"""
         if not MILVUS_AVAILABLE:
             print("警告: Milvus不可用，跳过向量搜索")
             return False
+        
+        # 如果已经初始化过，直接返回成功
+        if ScreeningService._milvus_initialized:
+            return True
         
         try:
             # 抑制弃用警告
@@ -42,11 +47,70 @@ class ScreeningService:
                     host=ScreeningService.MILVUS_HOST,
                     port=ScreeningService.MILVUS_PORT
                 )
+            ScreeningService._milvus_initialized = True
             print("✅ Milvus 连接成功（筛选服务）")
             return True
         except Exception as e:
             print(f"Milvus连接失败: {str(e)}")
             return False
+    
+    @staticmethod
+    def _close_milvus():
+        """关闭Milvus连接"""
+        if not MILVUS_AVAILABLE:
+            return
+        
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                connections.disconnect("default")
+            ScreeningService._milvus_initialized = False
+            print("✅ Milvus 连接已关闭（筛选服务）")
+        except Exception as e:
+            print(f"关闭Milvus连接失败: {str(e)}")
+    
+    @staticmethod
+    def _skill_matches(required_skill: str, resume_skill: str) -> bool:
+        """
+        精确匹配技能，避免子字符串误匹配
+        例如："java" 不应该匹配 "javascript"
+        """
+        required_lower = required_skill.lower().strip()
+        resume_lower = resume_skill.lower().strip()
+        
+        # 完全相等
+        if required_lower == resume_lower:
+            return True
+        
+        # 处理常见缩写和别名
+        skill_aliases = {
+            "js": ["javascript"],
+            "javascript": ["js"],
+            "py": ["python"],
+            "python": ["py"],
+            "c++": ["cpp", "c plus plus"],
+            "cpp": ["c++", "c plus plus"],
+            "c#": ["csharp", "c sharp"],
+            "csharp": ["c#", "c sharp"],
+            "node": ["nodejs", "node.js"],
+            "nodejs": ["node", "node.js"],
+            "react": ["reactjs", "react.js"],
+            "vue": ["vuejs", "vue.js"],
+            "angular": ["angularjs", "angular.js"],
+        }
+        
+        # 检查是否是别名关系
+        aliases = skill_aliases.get(required_lower, [])
+        if resume_lower in aliases:
+            return True
+        
+        # 检查单词边界匹配（用空格、逗号等分隔的完整单词）
+        import re
+        pattern = r'\b' + re.escape(required_lower) + r'\b'
+        if re.search(pattern, resume_lower):
+            return True
+        
+        return False
     
     @staticmethod
     def _calculate_match_score(similarity: float, resume: Resume, 
@@ -87,10 +151,10 @@ class ScreeningService:
                 ratio = resume.work_years / min_work_years if min_work_years > 0 else 0
                 condition_scores.append(ratio * 100)
         
-        # 技能匹配
+        # 技能匹配（使用精确匹配）
         if required_skills and resume.skills:
             matched_skills = sum(1 for skill in required_skills 
-                               if any(skill.lower() in s.lower() for s in resume.skills))
+                               if any(ScreeningService._skill_matches(skill, s) for s in resume.skills))
             skill_ratio = matched_skills / len(required_skills) if required_skills else 0
             condition_scores.append(skill_ratio * 100)
         
@@ -306,10 +370,10 @@ class ScreeningService:
                                 if resume.work_years < min_work_years:
                                     continue
                             
-                            # 必备技能过滤
+                            # 必备技能过滤（使用精确匹配）
                             if required_skills and resume.skills:
                                 has_all_skills = all(
-                                    any(req_skill.lower() in s.lower() for s in resume.skills)
+                                    any(ScreeningService._skill_matches(req_skill, s) for s in resume.skills)
                                     for req_skill in required_skills
                                 )
                                 if not has_all_skills:

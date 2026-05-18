@@ -37,6 +37,7 @@ class ResumeService:
     MILVUS_HOST = "localhost"
     MILVUS_PORT = "19530"
     COLLECTION_NAME = "resumes"
+    _milvus_initialized = False
 
     @staticmethod
     def parse_pdf(file_path: str) -> str:
@@ -246,16 +247,21 @@ class ResumeService:
 
     @staticmethod
     def _init_milvus():
-        """初始化Milvus连接"""
+        """初始化Milvus连接（单例模式，避免重复连接）"""
         if not MILVUS_AVAILABLE:
             print("警告: Milvus不可用，跳过向量存储")
             return False
+        
+        # 如果已经初始化过，直接返回成功
+        if ResumeService._milvus_initialized:
+            return True
         
         try:
             connections.connect(
                 host=ResumeService.MILVUS_HOST,
                 port=ResumeService.MILVUS_PORT
             )
+            ResumeService._milvus_initialized = True
             print("✅ Milvus 连接成功")
             return True
         except Exception as e:

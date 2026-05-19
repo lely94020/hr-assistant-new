@@ -58,7 +58,7 @@ def get_resumes(
 
 def create_resume(db: Session, resume_data: ResumeCreate) -> Resume:
     """创建简历"""
-    db_resume = Resume(**resume_data.dict())
+    db_resume = Resume(**resume_data.model_dump())
     db.add(db_resume)
     db.commit()
     db.refresh(db_resume)
@@ -71,7 +71,7 @@ def update_resume(db: Session, resume_id: int, resume_data: ResumeUpdate) -> Opt
     if not db_resume:
         return None
 
-    update_data = resume_data.dict(exclude_unset=True)
+    update_data = resume_data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_resume, field, value)
 

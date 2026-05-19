@@ -6,15 +6,21 @@ from app.models.question import InterviewQuestion
 
 
 def create_questions(db: Session, questions_data: List[dict]) -> List[InterviewQuestion]:
-    """批量创建面试题"""
-    db_questions = []
-    for q_data in questions_data:
-        db_question = InterviewQuestion(**q_data)
-        db.add(db_question)
-        db_questions.append(db_question)
+    """批量创建面试题（优化版）"""
+    if not questions_data:
+        return []
+    
+    # 使用 add_all() 批量添加，减少 ORM 操作次数
+    db_questions = [InterviewQuestion(**q_data) for q_data in questions_data]
+    db.add_all(db_questions)
+    
+    # 一次性提交，减少数据库交互
     db.commit()
+    
+    # 批量刷新，获取数据库生成的 ID 等字段
     for q in db_questions:
         db.refresh(q)
+    
     return db_questions
 
 
@@ -64,6 +70,10 @@ def delete_question(db: Session, question_id: int) -> bool:
 
 def save_questions_to_bank(db: Session, question_ids: List[int]) -> int:
     """将题目保存到题库（设置is_saved=1）"""
+    # 防御：空列表检查，避免全表更新
+    if not question_ids:
+        return 0
+    
     updated_count = db.query(InterviewQuestion).filter(
         InterviewQuestion.id.in_(question_ids)
     ).update({InterviewQuestion.is_saved: 1}, synchronize_session='fetch')

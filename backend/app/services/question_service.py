@@ -115,13 +115,19 @@ class QuestionService:
         # 保存到数据库（临时保存，is_saved=0）
         questions_data = []
         for q in questions:
-            # 将中文类型转换为英文存储
+            # 将中文类型转换为英文存储（带默认值保护）
             question_type_cn = q.get("type", "技术类")
-            question_type_en = QuestionService.QUESTION_TYPE_REVERSE_MAP.get(question_type_cn, question_type_cn)
+            question_type_en = QuestionService.QUESTION_TYPE_REVERSE_MAP.get(
+                question_type_cn, 
+                "technical"  # 默认值：如果映射失败，使用 technical
+            )
 
-            # 将中文难度转换为英文存储
+            # 将中文难度转换为英文存储（带默认值保护）
             difficulty_cn = q.get("difficulty", "中级")
-            difficulty_en = QuestionService.DIFFICULTY_REVERSE_MAP.get(difficulty_cn, difficulty_cn)
+            difficulty_en = QuestionService.DIFFICULTY_REVERSE_MAP.get(
+                difficulty_cn, 
+                "middle"  # 默认值：如果映射失败，使用 middle
+            )
 
             question_data = {
                 "position_id": position_id if position else None,
@@ -175,7 +181,8 @@ class QuestionService:
             llm = ChatTongyi(
                 model="qwen-plus",
                 temperature=0.7,
-                dashscope_api_key=api_key
+                dashscope_api_key=api_key,
+                request_timeout=120  # 设置60秒超时
             )
 
             # 构建prompt
@@ -218,9 +225,21 @@ class QuestionService:
             # 验证和清理数据
             validated_questions = []
             for q in questions[:count]:
+                # 验证题目类型，如果不是有效的中文类型，使用默认值
+                question_type = q.get("type", "技术类")
+                if question_type not in QuestionService.QUESTION_TYPE_REVERSE_MAP:
+                    print(f"警告：AI返回无效的题目类型 '{question_type}'，使用默认值 '技术类'")
+                    question_type = "技术类"
+                
+                # 验证难度等级，如果不是有效的中文难度，使用默认值
+                difficulty_level = q.get("difficulty", "中级")
+                if difficulty_level not in QuestionService.DIFFICULTY_REVERSE_MAP:
+                    print(f"警告：AI返回无效的难度等级 '{difficulty_level}'，使用默认值 '中级'")
+                    difficulty_level = "中级"
+                
                 validated_q = {
-                    "type": q.get("type", "技术类"),
-                    "difficulty": q.get("difficulty", QuestionService.DIFFICULTY_MAP.get(difficulty, difficulty)),
+                    "type": question_type,
+                    "difficulty": difficulty_level,
                     "question": q.get("question", ""),
                     "reference_answer": q.get("reference_answer") if with_answer else None,
                     "scoring_points": q.get("scoring_points", []),
@@ -240,7 +259,11 @@ class QuestionService:
     @staticmethod
     def _build_prompt(mode: str) -> str:
         """根据模式构建prompt"""
-        base_prompt = """你是一位资深的技术面试官，请根据以下信息生成面试题目。
+        
+        # 三种模式的差异化提示词
+        if mode == "position":
+            # 仅基于岗位生成
+            prompt_template = """你是一位资深的技术面试官，请根据以下岗位要求生成面试题目。
 
 【目标岗位】
 岗位名称：{position_name}
@@ -249,6 +272,37 @@ class QuestionService:
 
 任职要求：
 {requirements}
+
+【生成要求】
+- 题目类型：{question_types}（可多选：技术类/行为类/情景类/开放类）
+- 难度等级：{difficulty}（初级/中级/高级）
+- 题目数量：{count}题
+- 是否生成参考答案：{with_answer}
+
+请按以下JSON格式返回：
+{{
+    "questions": [
+        {{
+            "type": "技术类",
+            "difficulty": "中级",
+            "question": "题目内容",
+            "reference_answer": "参考答案（如需要）",
+            "scoring_points": ["评分要点1", "评分要点2"],
+            "source": "基于岗位要求"
+        }}
+    ]
+}}
+
+要求：
+1. 技术类题目要紧密结合岗位技术栈要求
+2. 行为类题目要考察岗位所需的核心能力
+3. 题目要有区分度，能筛选出符合岗位要求的候选人
+4. 参考答案要给出关键点，不要过于冗长
+5. 重点关注岗位描述中提到的核心技能和职责"""
+
+        elif mode == "resume":
+            # 仅基于简历生成
+            prompt_template = """你是一位资深的技术面试官，请根据以下候选人的简历信息生成个性化面试题目。
 
 【候选人信息】
 姓名：{candidate_name}
@@ -274,18 +328,69 @@ class QuestionService:
             "question": "题目内容",
             "reference_answer": "参考答案（如需要）",
             "scoring_points": ["评分要点1", "评分要点2"],
+            "source": "基于候选人经历"
+        }}
+    ]
+}}
+
+要求：
+1. 技术类题目要基于候选人的技能栈和项目经验设计
+2. 行为类题目要针对候选人的工作经历提问
+3. 深入挖掘简历中的亮点和疑点
+4. 题目要有针对性，验证候选人简历真实性
+5. 参考答案要结合候选人的实际背景
+6. **重要：必须精确生成{count}道题目，不要多也不要少**"""
+
+        else:  # mode == "mixed" 或其他
+            # 结合岗位和简历生成
+            prompt_template = """你是一位资深的技术面试官，请根据岗位要求和候选人简历生成针对性面试题目。
+
+【目标岗位】
+岗位名称：{position_name}
+岗位职责：
+{job_description}
+
+任职要求：
+{requirements}
+
+【候选人信息】
+姓名：{candidate_name}
+学历：{education} - {school} - {major}
+工作年限：{work_years}年
+当前职位：{current_position} @ {current_company}
+技能标签：{skills}
+工作经历摘要：{work_experience_summary}
+项目经验摘要：{project_experience_summary}
+
+【生成要求】
+- 题目类型：{question_types}（可多选：技术类/行为类/情景类/开放类）
+- 难度等级：{difficulty}（初级/中级/高级）
+- 题目数量：{count}题（必须精确生成{count}题，不多不少）
+- 是否生成参考答案：{with_answer}
+
+请按以下JSON格式返回：
+{{
+    "questions": [
+        {{
+            "type": "技术类",
+            "difficulty": "中级",
+            "question": "题目内容",
+            "reference_answer": "参考答案（如需要）",
+            "scoring_points": ["评分要点1", "评分要点2"],
             "source": "基于岗位要求/基于候选人经历"
         }}
     ]
 }}
 
 要求：
-1. 技术类题目要结合岗位技术栈和候选人技能
-2. 行为类题目要基于候选人的工作经历设计
-3. 题目要有区分度，能考察真实能力
-4. 参考答案要给出关键点，不要过于冗长"""
+1. 技术类题目要结合岗位技术栈和候选人技能的匹配度
+2. 行为类题目要基于候选人经历，考察是否符合岗位需求
+3. 重点考察候选人与岗位的差距和潜力
+4. 题目要有区分度，评估候选人是否适合该岗位
+5. 参考答案要考虑岗位要求和候选人背景的交集
+6. **重要：必须精确生成{count}道题目，不要多也不要少**"""
 
-        return base_prompt
+        return prompt_template
 
     @staticmethod
     def _format_work_experience(resume: Resume) -> str:
@@ -321,6 +426,27 @@ class QuestionService:
     @staticmethod
     def update_question(db: Session, question_id: int, updates: dict) -> Dict[str, Any]:
         """更新面试题"""
+        # 验证类型和难度字段（如果存在）
+        if "question_type" in updates:
+            question_type = updates["question_type"]
+            # 如果是中文，转换为英文
+            if question_type in QuestionService.QUESTION_TYPE_REVERSE_MAP:
+                updates["question_type"] = QuestionService.QUESTION_TYPE_REVERSE_MAP[question_type]
+            # 如果不是有效的英文枚举值，使用默认值
+            elif question_type not in QuestionService.QUESTION_TYPE_MAP:
+                print(f"警告：无效的题目类型 '{question_type}'，使用默认值 'technical'")
+                updates["question_type"] = "technical"
+        
+        if "difficulty" in updates:
+            difficulty = updates["difficulty"]
+            # 如果是中文，转换为英文
+            if difficulty in QuestionService.DIFFICULTY_REVERSE_MAP:
+                updates["difficulty"] = QuestionService.DIFFICULTY_REVERSE_MAP[difficulty]
+            # 如果不是有效的英文枚举值，使用默认值
+            elif difficulty not in QuestionService.DIFFICULTY_MAP:
+                print(f"警告：无效的难度等级 '{difficulty}'，使用默认值 'middle'")
+                updates["difficulty"] = "middle"
+        
         db_question = question_crud.update_question(db, question_id, updates)
         if not db_question:
             raise ValueError("题目不存在")

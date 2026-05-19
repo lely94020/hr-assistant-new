@@ -116,7 +116,8 @@ class ComparisonService:
             llm = ChatTongyi(
                 model="qwen-plus",
                 temperature=0.2,
-                dashscope_api_key=os.getenv("DASHSCOPE_API_KEY")
+                dashscope_api_key=os.getenv("DASHSCOPE_API_KEY"),
+                request_timeout=120  # 设置60秒超时
             )
 
             chain = prompt | llm | JsonOutputParser()

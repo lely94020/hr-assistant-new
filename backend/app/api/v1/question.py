@@ -96,7 +96,7 @@ def update_question(
     - **scoring_points**: 评分要点
     """
     try:
-        updates = request.dict(exclude_unset=True)
+        updates = request.model_dump(exclude_unset=True)
         result = QuestionService.update_question(db, question_id, updates)
         return {
             "code": 0,

@@ -198,14 +198,13 @@ async def transcribe_audio_async(recording_id: int, file_path: str, session_fact
             except Exception as e:
                 logger.warning(f"[转录任务] 关闭数据库会话时出错: {str(e)}")
         
-        # 可选：删除OSS上的临时文件
-        # if oss_url and object_name and oss_uploader.use_oss:
-        #     try:
-        #         oss_uploader.delete_file(object_name)
-        #         logger.info(f"已删除OSS临时文件: {object_name}")
-        #     except Exception as e:
-        #         logger.warning(f"删除OSS文件失败: {e}")
-        pass
+        # 清理 OSS 上的临时文件（无论成功或失败都需要清理）
+        if oss_url and object_name and oss_uploader.use_oss:
+            try:
+                oss_uploader.delete_file(object_name)
+                logger.info(f"[转录任务] 已删除OSS临时文件: {object_name}")
+            except Exception as e:
+                logger.warning(f"[转录任务] 删除OSS文件失败: {str(e)}，可能需要手动清理")
 
 
 def get_transcript_status_name(status: int) -> str:

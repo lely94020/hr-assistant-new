@@ -83,7 +83,7 @@ def get_level_from_score(score: float) -> str:
 
 @router.get("", summary="获取面试评价列表")
 def get_evaluation_list(
-    keyword: Optional[str] = Query(None, description="候选人姓名搜索"),
+    name: Optional[str] = Query(None, description="候选人姓名搜索"),
     position: Optional[str] = Query(None, description="岗位筛选"),
     level: Optional[str] = Query(None, description="等级筛选"),
     page: int = Query(1, ge=1, description="页码"),
@@ -92,16 +92,16 @@ def get_evaluation_list(
 ):
     """获取面试评价列表（支持搜索和筛选）"""
     try:
-        # 构建查询
-        query = db.query(InterviewEvaluation).join(
+        # 构建查询（使用 JOIN 一次性获取评价和简历信息）
+        query = db.query(InterviewEvaluation, Resume).join(
             Resume, InterviewEvaluation.resume_id == Resume.id
         ).filter(
             Resume.is_deleted == 0
         )
         
         # 姓名搜索
-        if keyword:
-            query = query.filter(Resume.candidate_name.like(f"%{keyword}%"))
+        if name:
+            query = query.filter(Resume.candidate_name.like(f"%{name}%"))
         
         # 岗位筛选
         if position:
@@ -111,31 +111,29 @@ def get_evaluation_list(
         total = query.count()
         
         # 分页查询
-        evaluations = query.order_by(
+        results = query.order_by(
             InterviewEvaluation.created_at.desc()
         ).offset((page - 1) * page_size).limit(page_size).all()
         
         # 格式化数据
         items = []
-        for evaluation in evaluations:
-            resume = get_resume(db, evaluation.resume_id)
-            if resume:
-                level = get_level_from_score(float(evaluation.total_score))
-                
-                # 如果指定了等级筛选，检查是否匹配
-                if level and level != level:
-                    continue
-                
-                items.append({
-                    "id": evaluation.id,
-                    "candidate_name": resume.candidate_name,
-                    "position": resume.current_position or "未知岗位",
-                    "total_score": float(evaluation.total_score),
-                    "level": level,
-                    "ai_comment": evaluation.ai_comment[:100] + "..." if evaluation.ai_comment and len(evaluation.ai_comment) > 100 else evaluation.ai_comment,
-                    "created_at": evaluation.created_at,
-                    "avatar": None  # 可以后续添加头像字段
-                })
+        for evaluation, resume in results:
+            eval_level = get_level_from_score(float(evaluation.total_score))
+            
+            # 如果指定了等级筛选，检查是否匹配
+            if level and level != eval_level:
+                continue
+            
+            items.append({
+                "id": evaluation.id,
+                "candidate_name": resume.candidate_name,
+                "position": resume.current_position or "未知岗位",
+                "total_score": float(evaluation.total_score),
+                "level": eval_level,
+                "ai_comment": evaluation.ai_comment[:100] + "..." if evaluation.ai_comment and len(evaluation.ai_comment) > 100 else evaluation.ai_comment,
+                "created_at": evaluation.created_at,
+                "avatar": None  # 可以后续添加头像字段
+            })
         
         return {
             "code": 0,

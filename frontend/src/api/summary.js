@@ -24,14 +24,6 @@ export function getSummaryByRecordingId(recordingId) {
   return request.get(`/summaries/${recordingId}`);
 }
 
-/**
- * 获取面试摘要详情（通过摘要ID）
- * @param {number} summaryId - 摘要ID
- * @returns {Promise}
- */
-export function getSummaryById(summaryId) {
-  return request.get(`/summaries/detail/${summaryId}`);
-}
 
 // ==================== 面试摘要更新 ====================
 

@@ -45,7 +45,7 @@ def get_summary(recording_id: int, db: Session = Depends(get_db)):
         if not summary:
             raise HTTPException(status_code=404, detail="面试摘要不存在")
 
-        return InterviewSummaryResponse.from_orm(summary)
+        return InterviewSummaryResponse.model_validate(summary)
 
     except HTTPException:
         raise
@@ -82,7 +82,7 @@ def update_summary(
         if not updated_summary:
             raise HTTPException(status_code=500, detail="更新摘要失败")
 
-        return InterviewSummaryResponse.from_orm(updated_summary)
+        return InterviewSummaryResponse.model_validate(updated_summary)
 
     except HTTPException:
         raise

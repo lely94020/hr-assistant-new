@@ -6,7 +6,10 @@ from langchain_community.llms.tongyi import Tongyi
 from langchain.prompts import PromptTemplate
 import dashscope
 
-from app.crud.interview_evaluation import create_interview_evaluation
+from app.crud.interview_evaluation import (
+    create_interview_evaluation,
+    update_interview_evaluation
+)
 from app.crud.interview_summary import get_summary_by_id
 from app.crud.recording import get_recording_by_id
 from app.crud.resume import get_resume
@@ -46,6 +49,7 @@ def generate_interview_evaluation(summary_id: int, db: Session) -> Dict[str, Any
         position_name = "未知岗位"
         requirements = ""
 
+        # 使用AI生成评价
         evaluation_data = _generate_evaluation_with_ai(
             candidate_name=resume.candidate_name,
             position_name=position_name,
@@ -58,16 +62,37 @@ def generate_interview_evaluation(summary_id: int, db: Session) -> Dict[str, Any
             concerns=summary.concerns
         )
 
-        new_evaluation = create_interview_evaluation(
-            db=db,
-            resume_id=summary.resume_id,
-            recording_id=summary.recording_id,
-            summary_id=summary_id,
-            **evaluation_data
-        )
+        # 检查是否已存在该摘要的评价（去重逻辑）
+        from app.crud.interview_evaluation import get_evaluations_by_resume_id
+        existing_evaluations = get_evaluations_by_resume_id(db, summary.resume_id)
+        
+        # 查找是否有基于同一个 summary_id 的评价
+        existing_evaluation = None
+        for eval_item in existing_evaluations:
+            if eval_item.summary_id == summary_id:
+                existing_evaluation = eval_item
+                break
 
-        logger.info(f"面试评价已创建 ID={new_evaluation.id}")
-        return _format_evaluation_response(new_evaluation)
+        if existing_evaluation:
+            # 更新现有评价
+            updated_evaluation = update_interview_evaluation(
+                db=db,
+                evaluation_id=existing_evaluation.id,
+                **evaluation_data
+            )
+            logger.info(f"面试评价已更新 ID={updated_evaluation.id}")
+            return _format_evaluation_response(updated_evaluation)
+        else:
+            # 创建新评价
+            new_evaluation = create_interview_evaluation(
+                db=db,
+                resume_id=summary.resume_id,
+                recording_id=summary.recording_id,
+                summary_id=summary_id,
+                **evaluation_data
+            )
+            logger.info(f"面试评价已创建 ID={new_evaluation.id}")
+            return _format_evaluation_response(new_evaluation)
 
     except Exception as e:
         logger.error(f"生成面试评价失败: {str(e)}")

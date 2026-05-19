@@ -20,9 +20,9 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-def generate_interview_summary(recording_id: int, db: Session) -> Dict[str, Any]:
+async def generate_interview_summary(recording_id: int, db: Session) -> Dict[str, Any]:
     """
-    从录音生成面试摘要
+    从录音生成面试摘要（异步版本）
     :param recording_id: 录音ID
     :param db: 数据库会话
     :return: 生成的摘要数据
@@ -45,8 +45,8 @@ def generate_interview_summary(recording_id: int, db: Session) -> Dict[str, Any]
         # 计算面试时长（分钟）
         duration_minutes = recording.duration // 60 if recording.duration else 0
 
-        # 使用AI生成摘要
-        summary_data = _generate_summary_with_ai(
+        # 使用AI生成摘要（异步）
+        summary_data = await _generate_summary_with_ai(
             transcript=recording.transcript,
             candidate_name=resume.candidate_name,
             position_name="未知岗位",  # 可以从position表获取
@@ -81,14 +81,14 @@ def generate_interview_summary(recording_id: int, db: Session) -> Dict[str, Any]
         raise
 
 
-def _generate_summary_with_ai(
+async def _generate_summary_with_ai(
     transcript: str,
     candidate_name: str,
     position_name: str,
     duration: int
 ) -> Dict[str, Any]:
     """
-    使用AI生成面试摘要
+    使用AI生成面试摘要（异步版本）
     :param transcript: 面试文字稿
     :param candidate_name: 候选人姓名
     :param position_name: 应聘岗位
@@ -175,7 +175,7 @@ def _generate_summary_with_ai(
             )
             chunks = text_splitter.split_text(transcript)
 
-            # 对每个块生成摘要
+            # 对每个块生成摘要（异步并发处理）
             chunk_summaries = []
             for i, chunk in enumerate(chunks):
                 logger.info(f"处理第 {i+1}/{len(chunks)} 块")
@@ -187,7 +187,8 @@ def _generate_summary_with_ai(
                 )
 
                 try:
-                    chunk_result = llm.invoke(chunk_prompt)
+                    # 使用异步调用，不阻塞事件循环
+                    chunk_result = await llm.ainvoke(chunk_prompt)
                     # 尝试解析JSON
                     chunk_data = _extract_json_from_response(chunk_result)
                     if chunk_data:
@@ -207,7 +208,8 @@ def _generate_summary_with_ai(
                 transcript=transcript
             )
 
-            result = llm.invoke(full_prompt)
+            # 使用异步调用，不阻塞事件循环
+            result = await llm.ainvoke(full_prompt)
             final_summary = _extract_json_from_response(result)
 
             if not final_summary:

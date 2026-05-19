@@ -104,7 +104,7 @@
       <el-table-column
         label="操作"
         fixed="right"
-        width="320"
+        width="400"
       >
         <template #default="{ row }">
           <el-button icon="VideoPlay" link @click="openPlayDialog(row)">
@@ -124,6 +124,14 @@
             @click="openScriptDialog(row)"
           >
             查看文字稿
+          </el-button>
+          <el-button
+            link
+            type="primary"
+            v-if="row.transcript_status === 2"
+            @click="goToSummary(row)"
+          >
+            生成摘要
           </el-button>
           <el-button
             icon="Delete"
@@ -293,6 +301,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Upload,
@@ -313,6 +322,7 @@ import { getResumeList } from '@/api/resume'
 import { getPositionList } from '@/api/position'
 
 // 基础数据
+const router = useRouter()
 const candidateList = ref([])
 const positionList = ref([])
 
@@ -403,6 +413,11 @@ const getAudioUrl = (filePath) => {
 // 跳转到简历详情
 const goToResume = (resumeId) => {
   window.open(`/resume/detail/${resumeId}`, '_blank')
+}
+
+// 跳转到面试摘要（生成评价入口）
+const goToSummary = (row) => {
+  router.push(`/evaluation/summary/${row.id}`)
 }
 
 // ==================== 数据加载 ====================

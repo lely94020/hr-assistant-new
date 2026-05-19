@@ -26,8 +26,8 @@ async def generate_summary(
 ):
     """从录音生成面试摘要"""
     try:
-        # 调用服务层生成摘要
-        summary_data = generate_interview_summary(request.recording_id, db)
+        # 调用服务层生成摘要（异步）
+        summary_data = await generate_interview_summary(request.recording_id, db)
 
         return InterviewSummaryResponse(**summary_data)
 
@@ -102,8 +102,8 @@ async def regenerate_summary(
         if not summary:
             raise HTTPException(status_code=404, detail="面试摘要不存在")
 
-        # 重新生成摘要
-        summary_data = generate_interview_summary(summary.recording_id, db)
+        # 重新生成摘要（异步）
+        summary_data = await generate_interview_summary(summary.recording_id, db)
 
         return InterviewSummaryResponse(**summary_data)
 

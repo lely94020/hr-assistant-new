@@ -9,7 +9,8 @@ from app.crud.interview_evaluation import (
     get_evaluations_by_resume_id,
     get_latest_evaluation_by_resume_id,
     get_evaluation_by_id,
-    update_hr_comment
+    update_hr_comment,
+    delete_interview_evaluation
 )
 from app.crud.resume import get_resume
 from app.models.interview_evaluation import InterviewEvaluation
@@ -286,3 +287,27 @@ def add_hr_comment(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"更新HR评价失败: {str(e)}")
+
+
+@router.delete("/{evaluation_id}", summary="删除面试评价")
+def delete_evaluation(evaluation_id: int, db: Session = Depends(get_db)):
+    """删除指定的面试评价"""
+    try:
+        evaluation = get_evaluation_by_id(db, evaluation_id)
+        if not evaluation:
+            raise HTTPException(status_code=404, detail=f"面试评价不存在: evaluation_id={evaluation_id}")
+
+        success = delete_interview_evaluation(db, evaluation_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="删除面试评价失败")
+
+        return {
+            "code": 0,
+            "message": "面试评价已删除"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"删除面试评价失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"删除面试评价失败: {str(e)}")

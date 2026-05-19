@@ -26,7 +26,7 @@ export function getEvaluationDetail(id) {
  * @returns {Promise}
  */
 export function getLatestEvaluation(resumeId) {
-  return request.get(`/evaluations/latest/${resumeId}`);
+  return request.get(`/evaluations/${resumeId}`);
 }
 
 /**
@@ -63,4 +63,15 @@ export function updateHrComment(evaluationId, hrComment) {
   return request.put(`/evaluations/${evaluationId}/hr-comment`, {
     hr_comment: hrComment,
   });
+}
+
+// ==================== 面试评价删除 ====================
+
+/**
+ * 删除面试评价
+ * @param {number} id - 评价ID
+ * @returns {Promise}
+ */
+export function deleteEvaluation(id) {
+  return request.delete(`/evaluations/${id}`);
 }

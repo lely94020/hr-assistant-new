@@ -213,6 +213,7 @@ import {
   updateSummary,
   regenerateSummary as regenerateSummaryApi
 } from '@/api/summary'
+import { generateEvaluation } from '@/api/evaluation'
 import { getRecordingDetail } from '@/api/recording'
 import { getResumeDetail } from '@/api/resume'
 
@@ -437,10 +438,20 @@ const regenerateSummary = async () => {
   }
 }
 
-// 跳转到评价页面
-const goToEvaluation = () => {
-  const recordingId = route.params.recordingId || route.query.recordingId
-  router.push(`/evaluation/evaluation-form?recordingId=${recordingId}`)
+// 生成并跳转到评价页面
+const goToEvaluation = async () => {
+  if (!summaryId.value) {
+    ElMessage.warning('请先生成面试摘要')
+    return
+  }
+  try {
+    const res = await generateEvaluation(summaryId.value)
+    ElMessage.success('评价生成成功')
+    router.push(`/evaluation/detail/${res.id}`)
+  } catch (error) {
+    console.error('生成评价失败:', error)
+    ElMessage.error('生成评价失败，请重试')
+  }
 }
 
 // 返回录音页面

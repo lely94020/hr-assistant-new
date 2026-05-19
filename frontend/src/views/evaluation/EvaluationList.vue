@@ -48,6 +48,12 @@
             重置
           </el-button>
         </el-form-item>
+        <el-form-item style="margin-left: auto">
+          <el-button type="success" @click="goToGenerate">
+            <el-icon><Plus /></el-icon>
+            生成评价
+          </el-button>
+        </el-form-item>
       </el-form>
     </el-card>
 
@@ -95,11 +101,15 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="150" align="center" fixed="right">
+        <el-table-column label="操作" width="200" align="center" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click.stop="viewDetail(row.id)">
               <el-icon><View /></el-icon>
               查看详情
+            </el-button>
+            <el-button type="danger" link @click.stop="handleDelete(row)">
+              <el-icon><Delete /></el-icon>
+              删除
             </el-button>
           </template>
         </el-table-column>
@@ -124,8 +134,9 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh, View } from '@element-plus/icons-vue'
-import { getEvaluationList } from '@/api/evaluation'
+import { Search, Refresh, View, Plus, Delete } from '@element-plus/icons-vue'
+import { getEvaluationList, deleteEvaluation } from '@/api/evaluation'
+import { ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const loading = ref(false)
@@ -193,6 +204,35 @@ const handleRowClick = (row) => {
 // 查看详情
 const viewDetail = (id) => {
   router.push(`/evaluation/detail/${id}`)
+}
+
+// 跳转到录音页开始生成评价流程
+const goToGenerate = () => {
+  router.push('/recording')
+}
+
+// 删除评价
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除"${row.candidate_name}"的面试评价吗？删除后不可恢复。`,
+      '删除确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消'
+      }
+    )
+
+    await deleteEvaluation(row.id)
+    ElMessage.success('面试评价已删除')
+    fetchEvaluationList()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除失败:', error)
+      ElMessage.error('删除失败')
+    }
+  }
 }
 
 // 分页大小变化

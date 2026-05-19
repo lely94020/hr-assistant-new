@@ -159,6 +159,14 @@
           <el-card shadow="never" class="right-card" title="快捷操作">
             <div class="operate-btns">
               <el-button
+                type="primary"
+                block
+                @click="goToEvaluation"
+                icon="Star"
+              >
+                查看面试评价
+              </el-button>
+              <el-button
                 type="info"
                 block
                 @click="downloadResume"
@@ -360,6 +368,12 @@ const deleteResumeItem = async () => {
 // 返回
 const goBack = () => {
   router.push('/resume')
+}
+
+// 查看面试评价
+const goToEvaluation = () => {
+  const resumeId = route.params.id
+  router.push(`/evaluation/detail/0?resumeId=${resumeId}`)
 }
 
 // 初始化

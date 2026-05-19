@@ -163,6 +163,7 @@ import * as echarts from 'echarts'
 import {
   generateEvaluation,
   getLatestEvaluation,
+  getEvaluationDetail,
   updateHrComment
 } from '@/api/evaluation'
 
@@ -260,68 +261,69 @@ const saveHrComment = async () => {
   }
 }
 
-// 加载评价数据
+// 填充评价数据到视图
+const fillEvaluationData = (data) => {
+  // 填充候选人信息
+  if (data.candidate_info) {
+    candidateInfo.name = data.candidate_info.name || '未知'
+    candidateInfo.position = data.candidate_info.position || '未知岗位'
+  }
+  if (data.created_at) {
+    const date = new Date(data.created_at)
+    candidateInfo.date = date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  // 填充评价数据
+  currentEvaluationId.value = data.id
+  totalScore.value = data.total_score
+
+  // 填充各维度评分
+  dimensionList[0].score = data.scores.professional.score
+  dimensionList[0].detail = data.scores.professional.comment || ''
+
+  dimensionList[1].score = data.scores.logic.score
+  dimensionList[1].detail = data.scores.logic.comment || ''
+
+  dimensionList[2].score = data.scores.communication.score
+  dimensionList[2].detail = data.scores.communication.comment || ''
+
+  dimensionList[3].score = data.scores.learning.score
+  dimensionList[3].detail = data.scores.learning.comment || ''
+
+  dimensionList[4].score = data.scores.teamwork.score
+  dimensionList[4].detail = data.scores.teamwork.comment || ''
+
+  dimensionList[5].score = data.scores.culture_fit.score
+  dimensionList[5].detail = data.scores.culture_fit.comment || ''
+
+  // 填充评价详情
+  evaluateInfo.aiComment = data.ai_comment || '暂无AI评语'
+  evaluateInfo.advantages = data.key_strengths || []
+  evaluateInfo.concerns = data.improvement_areas || []
+  evaluateInfo.suggestion = data.hiring_suggestion || '暂无录用建议'
+
+  // HR补充评价
+  hrComment.value = data.hr_comment || ''
+
+  // 设置推荐等级
+  setLevelInfo()
+
+  // 初始化雷达图
+  nextTick(() => initRadarChart())
+}
+
+// 加载评价数据（通过简历ID获取最新评价）
 const loadEvaluation = async (resumeId) => {
   loading.value = true
   try {
     const response = await getLatestEvaluation(resumeId)
-
-    // 填充候选人信息
-    if (response.candidate_info) {
-      candidateInfo.name = response.candidate_info.name || '未知'
-      candidateInfo.position = response.candidate_info.position || '未知岗位'
-
-      // 如果有面试日期，可以格式化显示
-      if (response.created_at) {
-        const date = new Date(response.created_at)
-        candidateInfo.date = date.toLocaleString('zh-CN', {
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit'
-        })
-      }
-    }
-
-    // 填充评价数据
-    currentEvaluationId.value = response.id
-    totalScore.value = response.total_score
-
-    // 填充各维度评分
-    dimensionList[0].score = response.scores.professional.score
-    dimensionList[0].detail = response.scores.professional.comment || ''
-
-    dimensionList[1].score = response.scores.logic.score
-    dimensionList[1].detail = response.scores.logic.comment || ''
-
-    dimensionList[2].score = response.scores.communication.score
-    dimensionList[2].detail = response.scores.communication.comment || ''
-
-    dimensionList[3].score = response.scores.learning.score
-    dimensionList[3].detail = response.scores.learning.comment || ''
-
-    dimensionList[4].score = response.scores.teamwork.score
-    dimensionList[4].detail = response.scores.teamwork.comment || ''
-
-    dimensionList[5].score = response.scores.culture_fit.score
-    dimensionList[5].detail = response.scores.culture_fit.comment || ''
-
-    // 填充评价详情
-    evaluateInfo.aiComment = response.ai_comment || '暂无AI评语'
-    evaluateInfo.advantages = response.key_strengths || []
-    evaluateInfo.concerns = response.improvement_areas || []
-    evaluateInfo.suggestion = response.hiring_suggestion || '暂无录用建议'
-
-    // HR补充评价
-    hrComment.value = response.hr_comment || ''
-
-    // 设置推荐等级
-    setLevelInfo()
-
-    // 初始化雷达图
-    nextTick(() => initRadarChart())
-
+    fillEvaluationData(response)
   } catch (error) {
     console.error('加载评价失败:', error)
     ElMessage.error('加载评价数据失败')
@@ -395,29 +397,51 @@ const initRadarChart = () => {
 }
 
 // 生命周期
-onMounted(() => {
-  // 从路由参数获取resumeId或summaryId
-  const resumeId = route.query.resumeId
+onMounted(async () => {
+  const evaluationId = route.params.id
   const summaryId = route.query.summaryId
+  const resumeId = route.query.resumeId
 
-  console.log('路由参数:', { resumeId, summaryId })
+  console.log('路由参数:', { evaluationId, summaryId, resumeId })
 
-  if (summaryId) {
-    // 如果有summaryId，先生成评价
-    handleGenerateEvaluation(summaryId)
-  } else if (resumeId) {
-    // 否则直接加载已有评价
-    loadEvaluation(resumeId)
-  } else {
-    // 没有参数时显示提示，但不跳转（方便调试）
-    ElMessage.warning('缺少必要参数，请使用 /evaluation?resumeId=9 访问')
-
-    // 设置默认提示信息
-    candidateInfo.name = '请先选择候选人'
-    candidateInfo.position = '面试评价系统'
-    candidateInfo.date = new Date().toLocaleDateString('zh-CN')
-    evaluateInfo.aiComment = '请通过简历管理页面进入评价功能，或直接访问：/evaluation?resumeId=9'
+  // 1. 优先使用路由 param id（从评价列表点击进入或刚生成后跳转）
+  if (evaluationId && evaluationId !== '0') {
+    loading.value = true
+    try {
+      const response = await getEvaluationDetail(evaluationId)
+      if (response.code === 0) {
+        fillEvaluationData(response.data)
+      } else {
+        ElMessage.error(response.message || '获取评价详情失败')
+      }
+    } catch (error) {
+      console.error('加载评价详情失败:', error)
+      ElMessage.error('加载评价详情失败')
+    } finally {
+      loading.value = false
+    }
+    return
   }
+
+  // 2. 有 summaryId，生成新评价
+  if (summaryId) {
+    await handleGenerateEvaluation(summaryId)
+    return
+  }
+
+  // 3. 有 resumeId，加载已有评价
+  if (resumeId) {
+    await loadEvaluation(resumeId)
+    return
+  }
+
+  // 4. 没有参数时显示提示
+  ElMessage.warning('缺少必要参数，请使用 /evaluation?resumeId=9 访问')
+
+  candidateInfo.name = '请先选择候选人'
+  candidateInfo.position = '面试评价系统'
+  candidateInfo.date = new Date().toLocaleDateString('zh-CN')
+  evaluateInfo.aiComment = '请通过简历管理页面进入评价功能，或直接访问：/evaluation?resumeId=9'
 })
 </script>
 

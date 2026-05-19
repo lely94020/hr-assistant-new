@@ -1,4 +1,4 @@
-import os
+import os,logging
 import shutil
 from typing import Optional
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
@@ -29,6 +29,9 @@ from app.schemas.recording import (
     RecordingStatusResponse
 )
 
+# 配置日志
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1/recordings", tags=["录音管理"])
 
 # 录音文件存储目录
@@ -56,16 +59,6 @@ async def upload_recording(
                 detail=f"不支持的文件格式: {file_ext}，支持的格式: {', '.join(ALLOWED_EXTENSIONS)}"
             )
 
-        # 读取文件内容以检查大小
-        content = await file.read()
-        file_size = len(content)
-
-        if file_size > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=400,
-                detail=f"文件大小超过限制(500MB)，当前大小: {file_size / 1024 / 1024:.2f}MB"
-            )
-
         # 创建上传目录
         os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -74,12 +67,27 @@ async def upload_recording(
         unique_filename = f"{timestamp}_{file.filename}"
         file_path = os.path.join(UPLOAD_DIR, unique_filename)
 
-        # 保存文件
+        # 流式保存文件，避免一次性加载到内存
+        file_size = 0
+        chunk_size = 1024 * 1024  # 1MB chunks
         with open(file_path, "wb") as f:
-            f.write(content)
-
-        # 重置文件指针以便后续使用
-        await file.seek(0)
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                
+                # 检查文件大小是否超过限制
+                if file_size > MAX_FILE_SIZE:
+                    # 删除已写入的部分文件
+                    f.close()
+                    os.remove(file_path)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"文件大小超过限制(500MB)，当前大小: {file_size / 1024 / 1024:.2f}MB"
+                    )
+                
+                f.write(chunk)
 
         # 创建数据库记录
         db_recording = create_recording(
@@ -107,6 +115,12 @@ async def upload_recording(
     except HTTPException:
         raise
     except Exception as e:
+        # 如果发生异常，清理可能已创建的文件
+        if 'file_path' in locals() and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except:
+                pass
         raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
 
 
@@ -199,9 +213,17 @@ async def start_transcription(recording_id: int, db: Session = Depends(get_db)):
         if recording.transcript_status == 2:
             raise HTTPException(status_code=400, detail="已完成转写")
 
-        # 异步启动转写任务
+        # 异步启动转写任务 - 只传递 recording_id 和 file_path，不传递 db session
         import asyncio
-        asyncio.create_task(transcribe_audio_async(recording_id, db, recording.file_path))
+        from app.db.database import SessionLocal
+        
+        # 创建后台任务
+        task = asyncio.create_task(
+            transcribe_audio_async(recording_id, recording.file_path, SessionLocal)
+        )
+        
+        # 添加异常回调，确保异常不会被静默吞掉
+        task.add_done_callback(_handle_transcription_task_done)
 
         return TranscribeResponse(
             id=recording.id,
@@ -214,6 +236,21 @@ async def start_transcription(recording_id: int, db: Session = Depends(get_db)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"启动转写失败: {str(e)}")
+
+
+def _handle_transcription_task_done(task):
+    """
+    处理转录任务完成的回调函数
+    用于捕获并记录后台任务中的异常
+    """
+    try:
+        # 尝试获取任务结果，如果任务中有异常，这里会抛出
+        result = task.result()
+        logger.info(f"转录任务完成，结果长度: {len(result) if result else 0}")
+    except Exception as e:
+        # 记录异常，但不重新抛出（因为这是后台任务）
+        logger.error(f"转录任务执行失败: {str(e)}", exc_info=True)
+        # 注意：此时数据库状态应该已经在 transcribe_audio_async 的 except 块中更新为失败状态
 
 
 @router.get("/{recording_id}/status", response_model=RecordingStatusResponse, summary="查询转写状态")

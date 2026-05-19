@@ -191,7 +191,7 @@
       <el-card shadow="never" class="float-card">
         <div class="btn-group">
           <el-button block @click="regenerateSummary" :loading="regenerating">重新生成摘要</el-button>
-          <el-button block type="primary" class="mt-8" @click="goToEvaluation">生成评价</el-button>
+          <el-button block type="primary" class="mt-8" :loading="generatingEvaluation" @click="goToEvaluation">生成评价</el-button>
           <el-button block class="mt-8" @click="goBackRecord">返回录音</el-button>
         </div>
       </el-card>
@@ -224,6 +224,7 @@ const router = useRouter()
 const loading = ref(false)
 const saving = ref(false)
 const regenerating = ref(false)
+const generatingEvaluation = ref(false)
 
 // 编辑状态
 const editMode = ref(false)
@@ -444,6 +445,7 @@ const goToEvaluation = async () => {
     ElMessage.warning('请先生成面试摘要')
     return
   }
+  generatingEvaluation.value = true
   try {
     const res = await generateEvaluation(summaryId.value)
     ElMessage.success('评价生成成功')
@@ -451,6 +453,8 @@ const goToEvaluation = async () => {
   } catch (error) {
     console.error('生成评价失败:', error)
     ElMessage.error('生成评价失败，请重试')
+  } finally {
+    generatingEvaluation.value = false
   }
 }
 

@@ -144,10 +144,10 @@
     <div class="bottom-operate">
       <el-card shadow="never" class="operate-card">
         <div class="btn-group">
-          <el-button type="success" size="large">通过录用</el-button>
-          <el-button type="warning" size="large">进入待定</el-button>
-          <el-button type="danger" size="large">不予录用</el-button>
-          <el-button type="primary" size="large" class="ml-20">导出评价报告</el-button>
+          <el-button type="success" size="large" :loading="statusUpdating" @click="handleUpdateStatus(4)">通过录用</el-button>
+          <el-button type="warning" size="large" :loading="statusUpdating" @click="handleUpdateStatus(3)">进入待定</el-button>
+          <el-button type="danger" size="large" :loading="statusUpdating" @click="handleUpdateStatus(5)">不予录用</el-button>
+          <el-button type="primary" size="large" class="ml-20" @click="handleExport">导出评价报告</el-button>
         </div>
       </el-card>
     </div>
@@ -157,7 +157,7 @@
 <script setup>
 import { ref, reactive, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElLoading } from 'element-plus'
+import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Check, Warning } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import {
@@ -166,6 +166,7 @@ import {
   getEvaluationDetail,
   updateHrComment
 } from '@/api/evaluation'
+import { updateResumeStatus } from '@/api/resume'
 
 const route = useRoute()
 const router = useRouter()
@@ -185,6 +186,10 @@ const activeCollapse = ref([0])
 const hrComment = ref('')
 // 当前评价ID
 const currentEvaluationId = ref(null)
+// 当前简历ID（用于底部操作更新状态）
+const currentResumeId = ref(null)
+// 状态更新中
+const statusUpdating = ref(false)
 // 加载状态
 const loading = ref(false)
 // 雷达图 DOM 引用
@@ -281,6 +286,7 @@ const fillEvaluationData = (data) => {
 
   // 填充评价数据
   currentEvaluationId.value = data.id
+  currentResumeId.value = data.resume_id
   totalScore.value = data.total_score
 
   // 填充各维度评分
@@ -354,6 +360,103 @@ const handleGenerateEvaluation = async (summaryId) => {
   } finally {
     hideLoading.close()
   }
+}
+
+// ==================== 底部操作 ====================
+// 更新候选人状态
+const handleUpdateStatus = async (status) => {
+  if (!currentResumeId.value) {
+    ElMessage.warning('暂无候选人信息')
+    return
+  }
+
+  const statusMap = { 3: '进入待定', 4: '通过录用', 5: '不予录用' }
+  const actionText = statusMap[status] || '更新状态'
+
+  try {
+    await ElMessageBox.confirm(
+      `确定将候选人状态标记为"${actionText}"吗？`,
+      '确认操作',
+      { type: 'warning', confirmButtonText: '确定', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+
+  statusUpdating.value = true
+  try {
+    await updateResumeStatus(currentResumeId.value, status)
+    ElMessage.success(`已${actionText}`)
+  } catch (error) {
+    console.error('更新状态失败:', error)
+    ElMessage.error('更新状态失败')
+  } finally {
+    statusUpdating.value = false
+  }
+}
+
+// 导出评价报告
+const handleExport = () => {
+  if (!currentEvaluationId.value) {
+    ElMessage.warning('暂无评价数据')
+    return
+  }
+
+  const printContent = `
+    <html>
+    <head><meta charset="utf-8"><title>面试评价报告</title>
+    <style>
+      body { font-family: 'Microsoft YaHei', sans-serif; padding: 40px; }
+      h1 { text-align: center; color: #303133; }
+      h2 { color: #409eff; border-bottom: 2px solid #409eff; padding-bottom: 6px; }
+      .info { display: flex; gap: 20px; margin: 20px 0; }
+      .info-item { flex: 1; }
+      .score-box { text-align: center; margin: 30px 0; }
+      .score-num { font-size: 48px; font-weight: bold; color: #409eff; }
+      .dimension { margin: 12px 0; }
+      .dimension .bar { height: 20px; background: #e4e7ed; border-radius: 10px; }
+      .dimension .fill { height: 20px; background: #409eff; border-radius: 10px; }
+      .footer { text-align: center; color: #909399; margin-top: 40px; font-size: 12px; }
+    </style>
+    </head>
+    <body>
+      <h1>面试评价报告</h1>
+      <div class="info">
+        <div class="info-item"><strong>候选人：</strong>${candidateInfo.name}</div>
+        <div class="info-item"><strong>应聘岗位：</strong>${candidateInfo.position}</div>
+        <div class="info-item"><strong>面试日期：</strong>${candidateInfo.date}</div>
+      </div>
+      <div class="score-box">
+        <div style="font-size:16px;color:#606266">综合得分</div>
+        <div class="score-num">${totalScore.value}</div>
+        <div style="color:#606266">${getLevelInfo.text}</div>
+      </div>
+      <h2>维度评分</h2>
+      ${dimensionList.map(d => `
+        <div class="dimension">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span>${d.name} (${d.weight})</span><span>${d.score}分</span>
+          </div>
+          <div class="bar"><div class="fill" style="width:${d.score}%"></div></div>
+        </div>
+      `).join('')}
+      <h2>AI综合评语</h2>
+      <p style="line-height:1.8;color:#303133">${evaluateInfo.aiComment}</p>
+      <h2>核心优势</h2>
+      <ul>${evaluateInfo.advantages.map(a => `<li>${a}</li>`).join('')}</ul>
+      <h2>待提升领域</h2>
+      <ul>${evaluateInfo.concerns.map(c => `<li>${c}</li>`).join('')}</ul>
+      <h2>录用建议</h2>
+      <p style="line-height:1.8;color:#303133">${evaluateInfo.suggestion}</p>
+      <div class="footer">由企业HR智能助手生成</div>
+    </body>
+    </html>
+  `
+
+  const win = window.open('', '_blank')
+  win.document.write(printContent)
+  win.document.close()
+  win.print()
 }
 
 // ==================== ECharts 雷达图初始化 ====================

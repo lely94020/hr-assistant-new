@@ -3,6 +3,7 @@ from app.crud.comparison import create_comparison, update_comparison_analysis
 from app.crud.resume import get_resume
 from app.crud.interview_evaluation import get_latest_evaluation_by_resume_id
 from app.crud.position import get_position_by_id
+from app.core.config import settings
 from typing import List, Dict, Any
 import os
 import json
@@ -105,6 +106,11 @@ class ComparisonService:
         if len(candidates) < 2:
             raise ValueError("候选人数量不足")
 
+        # 检查 API Key 配置
+        api_key = settings.DASHSCOPE_API_KEY
+        if not api_key:
+            raise ValueError("未配置 DASHSCOPE_API_KEY，请在 .env 文件中配置")
+
         # 构建Prompt
         prompt = ComparisonService._build_comparison_prompt(
             position_data,
@@ -116,12 +122,36 @@ class ComparisonService:
             llm = ChatTongyi(
                 model="qwen-plus",
                 temperature=0.2,
-                dashscope_api_key=os.getenv("DASHSCOPE_API_KEY"),
-                request_timeout=120  # 设置60秒超时
+                dashscope_api_key=api_key,
+                request_timeout=120  # 设置120秒超时
             )
 
+            # 构建完整的 chain
             chain = prompt | llm | JsonOutputParser()
-            analysis_result = await chain.ainvoke({})
+            
+            # 准备输入变量
+            candidates_text = ""
+            for idx, candidate in enumerate(candidates):
+                label = chr(65 + idx)  # A, B, C, D, E
+                eval_data = candidate.get("evaluation") or {}
+
+                candidates_text += f"""
+候选人{label} - {candidate['name']}：
+- 学历：{candidate.get('education') or '未知'} - {candidate.get('school') or '未知'}
+- 专业：{candidate.get('major') or '未知'}
+- 工作年限：{candidate.get('work_years') or 0}年
+- 当前职位：{candidate.get('current_position') or '未知'} @ {candidate.get('current_company') or '未知'}
+- 技能：{', '.join(candidate.get('skills') or [])}
+- 面试评分：专业{eval_data.get('professional_score') or 0}分、逻辑{eval_data.get('logic_score') or 0}分、沟通{eval_data.get('communication_score') or 0}分、学习{eval_data.get('learning_score') or 0}分、团队{eval_data.get('teamwork_score') or 0}分、文化{eval_data.get('culture_score') or 0}分
+- 综合得分：{eval_data.get('total_score') or 0}分
+"""
+
+            # 使用异步调用，传入正确的变量
+            analysis_result = await chain.ainvoke({
+                "position_name": position_data.get('name', '未知'),
+                "requirements": position_data.get('requirements', '无'),
+                "candidates_text": candidates_text
+            })
 
             # 验证返回结果
             ComparisonService._validate_analysis_result(analysis_result, candidates)
@@ -169,11 +199,11 @@ class ComparisonService:
 - 综合得分：{eval_data.get('total_score') or 0}分
 """
 
-        prompt_template = f"""你是一位资深的招聘顾问，请对以下候选人进行对比分析。
+        prompt_template = """你是一位资深的招聘顾问，请对以下候选人进行对比分析。
 
 【目标岗位】
-岗位名称：{position_data.get('name', '未知')}
-核心要求：{position_data.get('requirements', '无')}
+岗位名称：{position_name}
+核心要求：{requirements}
 
 【候选人信息】
 {candidates_text}
@@ -220,7 +250,10 @@ class ComparisonService:
 6. 如果某些候选人缺少面试评分，请主要基于简历信息进行评估
 """
 
-        return ChatPromptTemplate.from_template(prompt_template)
+        prompt = ChatPromptTemplate.from_template(prompt_template)
+        
+        # 返回带有输入变量的完整 chain
+        return prompt
 
     @staticmethod
     def _validate_analysis_result(result: Dict[str, Any], candidates: List[Dict[str, Any]]):
@@ -237,16 +270,88 @@ class ComparisonService:
             if field not in result:
                 raise ValueError(f"AI返回结果缺少必要字段: {field}")
 
-        # 验证候选人分析数量
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # ==================== 验证候选人分析数量 ====================
         if len(result["candidate_analysis"]) != len(candidates):
-            raise ValueError("候选人分析数量与实际候选人数量不匹配")
+            logger.warning(
+                f"候选人分析数量不匹配: 期望{len(candidates)}个，实际{len(result['candidate_analysis'])}个"
+            )
+            
+            actual_count = len(result["candidate_analysis"])
+            expected_count = len(candidates)
+            
+            # 构建已分析的候选人名称集合
+            analyzed_names = {item.get("name") for item in result["candidate_analysis"]}
+            all_candidate_names = {c["name"] for c in candidates}
+            
+            # 找出缺失的候选人
+            missing_names = all_candidate_names - analyzed_names
+            
+            if actual_count > expected_count:
+                # 多余的删除（保留前 N 个）
+                result["candidate_analysis"] = result["candidate_analysis"][:expected_count]
+            elif missing_names:
+                # 为缺失的候选人补充默认分析
+                for candidate in candidates:
+                    if candidate["name"] in missing_names:
+                        result["candidate_analysis"].append({
+                            "name": candidate["name"],
+                            "advantages_over_others": ["信息不足，无法评估"],
+                            "disadvantages": ["数据不完整"],
+                            "suitable_scenarios": "需要更多信息才能评估",
+                            "risk_points": "缺少面试评价或简历信息不完整"
+                        })
+                        
+                        if len(result["candidate_analysis"]) >= expected_count:
+                            break
 
-        # 验证排名
+        # ==================== 验证排名数量 ====================
         if len(result["ranking"]) != len(candidates):
-            raise ValueError("排名数量与实际候选人数量不匹配")
+            logger.warning(
+                f"排名数量不匹配: 期望{len(candidates)}个，实际{len(result['ranking'])}个"
+            )
+            
+            actual_count = len(result["ranking"])
+            expected_count = len(candidates)
+            
+            # 构建已排名的候选人名称集合
+            ranked_names = {item.get("name") for item in result["ranking"]}
+            all_candidate_names = {c["name"] for c in candidates}
+            
+            # 找出未排名的候选人
+            unranked_names = all_candidate_names - ranked_names
+            
+            if actual_count > expected_count:
+                # 多余的删除
+                result["ranking"] = result["ranking"][:expected_count]
+            elif unranked_names:
+                # 为未排名的候选人补充默认排名
+                rank_num = actual_count + 1
+                
+                for candidate in candidates:
+                    if candidate["name"] in unranked_names:
+                        result["ranking"].append({
+                            "rank": rank_num,
+                            "name": candidate["name"],
+                            "score": 0,
+                            "reason": "未获得AI排名，可能需要进一步评估"
+                        })
+                        rank_num += 1
+                        
+                        if len(result["ranking"]) >= expected_count:
+                            break
 
-        # 验证排名序号
+        # ==================== 验证排名序号 ====================
         ranks = [item["rank"] for item in result["ranking"]]
         expected_ranks = list(range(1, len(candidates) + 1))
+        
+        # 如果排名序号不正确，重新分配
         if sorted(ranks) != expected_ranks:
-            raise ValueError("排名序号不正确")
+            logger.warning(f"排名序号不正确: {ranks}，按分数重新分配")
+            
+            # 按分数降序排列，重新分配排名
+            result["ranking"].sort(key=lambda x: x.get("score", 0), reverse=True)
+            for idx, item in enumerate(result["ranking"]):
+                item["rank"] = idx + 1

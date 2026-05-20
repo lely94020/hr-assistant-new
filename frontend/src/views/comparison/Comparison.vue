@@ -230,8 +230,7 @@ import { getPositionList } from '@/api/position'
 import { getResumeList } from '@/api/resume'
 import {
   createComparison,
-  analyzeComparison,
-  exportComparisonReport
+  analyzeComparison
 } from '@/api/comparison'
 
 const positionList = ref([])
@@ -486,14 +485,16 @@ const initChart = () => {
         return {
           name: candidate.name,
           type: 'radar',
-          data: candidate.evaluation ? [
-            candidate.evaluation.professional_score,
-            candidate.evaluation.logic_score,
-            candidate.evaluation.communication_score,
-            candidate.evaluation.learning_score,
-            candidate.evaluation.teamwork_score,
-            candidate.evaluation.culture_score
-          ] : [],
+          data: candidate.evaluation ? [{
+            value: [
+              candidate.evaluation.professional_score,
+              candidate.evaluation.logic_score,
+              candidate.evaluation.communication_score,
+              candidate.evaluation.learning_score,
+              candidate.evaluation.teamwork_score,
+              candidate.evaluation.culture_score
+            ]
+          }] : [],
           areaStyle: { opacity: 0.2 },
           lineStyle: {
             color: colors[index % colors.length]
@@ -506,22 +507,22 @@ const initChart = () => {
     }
   }
   myChart.setOption(option)
+  window.addEventListener('resize', resizeChart)
+}
+
+const resizeChart = () => {
+  if (myChart) myChart.resize()
 }
 
 watch(chartType, () => {
   nextTick(() => initChart())
 })
 
-const handleExport = async () => {
+const handleExport = () => {
   if (!comparisonData.value) return
 
-  try {
-    const res = await exportComparisonReport(comparisonData.value.id)
-    ElMessage.info(res.message || 'PDF导出功能开发中')
-  } catch (error) {
-    console.error('导出失败:', error)
-    ElMessage.error('导出失败')
-  }
+  const baseUrl = 'http://localhost:8000/api/v1'
+  window.open(`${baseUrl}/comparison/${comparisonData.value.id}/export`, '_blank')
 }
 
 const handleSave = () => {
@@ -533,6 +534,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', resizeChart)
   if (myChart) {
     myChart.dispose()
   }

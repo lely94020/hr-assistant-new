@@ -11,63 +11,11 @@ from langchain.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_community.embeddings import DashScopeEmbeddings
 
-try:
-    from pymilvus import connections, Collection, utility
-    MILVUS_AVAILABLE = True
-    print("✅ Milvus 客户端导入成功（筛选服务）")
-except ImportError:
-    MILVUS_AVAILABLE = False
-    print("⚠️ pymilvus未安装，向量搜索功能将不可用")
+from app.utils.milvus_client import MilvusClient
 
 
 class ScreeningService:
     """智能简历筛选服务"""
-    
-    MILVUS_HOST = "localhost"
-    MILVUS_PORT = "19530"
-    COLLECTION_NAME = "resumes"
-    _milvus_initialized = False
-    
-    @staticmethod
-    def _init_milvus():
-        """初始化Milvus连接（单例模式，避免重复连接）"""
-        if not MILVUS_AVAILABLE:
-            print("警告: Milvus不可用，跳过向量搜索")
-            return False
-        
-        # 如果已经初始化过，直接返回成功
-        if ScreeningService._milvus_initialized:
-            return True
-        
-        try:
-            # 抑制弃用警告
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", DeprecationWarning)
-                connections.connect(
-                    host=ScreeningService.MILVUS_HOST,
-                    port=ScreeningService.MILVUS_PORT
-                )
-            ScreeningService._milvus_initialized = True
-            print("✅ Milvus 连接成功（筛选服务）")
-            return True
-        except Exception as e:
-            print(f"Milvus连接失败: {str(e)}")
-            return False
-    
-    @staticmethod
-    def _close_milvus():
-        """关闭Milvus连接"""
-        if not MILVUS_AVAILABLE:
-            return
-        
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", DeprecationWarning)
-                connections.disconnect("default")
-            ScreeningService._milvus_initialized = False
-            print("✅ Milvus 连接已关闭（筛选服务）")
-        except Exception as e:
-            print(f"关闭Milvus连接失败: {str(e)}")
     
     @staticmethod
     def _skill_matches(required_skill: str, resume_skill: str) -> bool:
@@ -268,30 +216,18 @@ class ScreeningService:
         """
         根据岗位进行智能简历筛选
         """
-        if not MILVUS_AVAILABLE:
+        client = MilvusClient()
+        if not client.is_available():
             raise Exception("Milvus不可用，无法进行向量检索")
-        
+
         # 1. 获取岗位信息
         position = db.query(JobPosition).filter(
             JobPosition.id == position_id,
             JobPosition.is_deleted == 0
         ).first()
-        
+
         if not position:
             raise Exception("岗位不存在")
-        
-        # 2. 初始化Milvus
-        if not ScreeningService._init_milvus():
-            raise Exception("Milvus连接失败")
-        
-        # 3. 检查集合是否存在
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            if not utility.has_collection(ScreeningService.COLLECTION_NAME):
-                raise Exception("简历向量集合不存在，请先上传简历")
-            
-            collection = Collection(ScreeningService.COLLECTION_NAME)
-            collection.load()
         
         # 4. 将岗位JD向量化
         jd_text = f"{position.position_name}\n{position.job_description}\n{position.requirements}"
@@ -306,21 +242,8 @@ class ScreeningService:
             raise Exception(f"岗位JD向量化失败: {str(e)}")
         
         # 5. 执行向量检索
-        search_params = {
-            "metric_type": "COSINE",
-            "params": {"nprobe": 10}
-        }
-        
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", DeprecationWarning)
-                results = collection.search(
-                    data=[query_vector],
-                    anns_field="embedding",
-                    param=search_params,
-                    limit=top_n * 2,  # 多取一些，后续过滤
-                    output_fields=["resume_id"]
-                )
+            results = client.search(query_vector, top_k=top_n * 2)
         except Exception as e:
             raise Exception(f"向量检索失败: {str(e)}")
         
@@ -440,23 +363,11 @@ class ScreeningService:
         """
         根据自定义查询条件进行智能筛选
         """
-        if not MILVUS_AVAILABLE:
+        client = MilvusClient()
+        if not client.is_available():
             raise Exception("Milvus不可用，无法进行向量检索")
-        
-        # 1. 初始化Milvus
-        if not ScreeningService._init_milvus():
-            raise Exception("Milvus连接失败")
-        
-        # 2. 检查集合是否存在
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            if not utility.has_collection(ScreeningService.COLLECTION_NAME):
-                raise Exception("简历向量集合不存在，请先上传简历")
-            
-            collection = Collection(ScreeningService.COLLECTION_NAME)
-            collection.load()
-        
-        # 3. 将自定义查询向量化
+
+        # 1. 将自定义查询向量化
         try:
             embeddings = DashScopeEmbeddings(
                 model="text-embedding-v1",
@@ -465,23 +376,10 @@ class ScreeningService:
             query_vector = embeddings.embed_query(query)
         except Exception as e:
             raise Exception(f"查询文本向量化失败: {str(e)}")
-        
-        # 4. 执行向量检索
-        search_params = {
-            "metric_type": "COSINE",
-            "params": {"nprobe": 10}
-        }
-        
+
+        # 2. 执行向量检索
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", DeprecationWarning)
-                results = collection.search(
-                    data=[query_vector],
-                    anns_field="embedding",
-                    param=search_params,
-                    limit=top_n,
-                    output_fields=["resume_id"]
-                )
+            results = client.search(query_vector, top_k=top_n)
         except Exception as e:
             raise Exception(f"向量检索失败: {str(e)}")
         

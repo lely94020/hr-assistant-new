@@ -1,3 +1,4 @@
+import asyncio
 from sqlalchemy.orm import Session
 from app.crud.resume import create_resume, save_uploaded_file
 from app.schemas.resume import ResumeCreate
@@ -20,24 +21,14 @@ from langchain_community.embeddings import DashScopeEmbeddings
 # 配置
 import json
 
-# 导入Milvus
-try:
-    from pymilvus import connections, Collection, FieldSchema, CollectionSchema, DataType, utility
-    MILVUS_AVAILABLE = True
-    print("✅ Milvus 客户端导入成功")
-except ImportError:
-    MILVUS_AVAILABLE = False
-    print("⚠️ pymilvus未安装，向量搜索功能将不可用")
+from app.utils.milvus_client import MilvusClient
+
+# 批量处理并发度
+BATCH_SEMAPHORE = asyncio.Semaphore(5)
 
 
 class ResumeService:
     """简历服务类"""
-
-    # Milvus配置
-    MILVUS_HOST = "localhost"
-    MILVUS_PORT = "19530"
-    COLLECTION_NAME = "resumes"
-    _milvus_initialized = False
 
     @staticmethod
     def parse_pdf(file_path: str) -> str:
@@ -247,135 +238,39 @@ class ResumeService:
         return cleaned
 
     @staticmethod
-    def _init_milvus():
-        """初始化Milvus连接（单例模式，避免重复连接）"""
-        if not MILVUS_AVAILABLE:
-            print("警告: Milvus不可用，跳过向量存储")
-            return False
-        
-        # 如果已经初始化过，直接返回成功
-        if ResumeService._milvus_initialized:
-            return True
-        
-        try:
-            connections.connect(
-                host=ResumeService.MILVUS_HOST,
-                port=ResumeService.MILVUS_PORT
-            )
-            ResumeService._milvus_initialized = True
-            print("✅ Milvus 连接成功")
-            return True
-        except Exception as e:
-            print(f"Milvus连接失败: {str(e)}")
-            return False
-
-    @staticmethod
-    def _create_collection_if_not_exists():
-        """创建集合（如果不存在）"""
-        if not MILVUS_AVAILABLE:
-            return False
-        
-        try:
-            if utility.has_collection(ResumeService.COLLECTION_NAME):
-                return True
-            
-            # 定义字段
-            fields = [
-                FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
-                FieldSchema(name="resume_id", dtype=DataType.INT64, description="简历ID"),
-                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=1536),
-                FieldSchema(name="candidate_name", dtype=DataType.VARCHAR, max_length=100),
-                FieldSchema(name="skills", dtype=DataType.VARCHAR, max_length=2000),
-                FieldSchema(name="content_hash", dtype=DataType.VARCHAR, max_length=100)
-            ]
-            
-            # 创建schema
-            schema = CollectionSchema(fields, description="简历向量集合")
-            
-            # 创建集合
-            collection = Collection(ResumeService.COLLECTION_NAME, schema)
-            
-            # 创建索引
-            index_params = {
-                "metric_type": "COSINE",
-                "index_type": "IVF_FLAT",
-                "params": {"nlist": 128}
-            }
-            collection.create_index("embedding", index_params)
-            
-            print(f"✅ 创建Milvus集合: {ResumeService.COLLECTION_NAME}")
-            return True
-            
-        except Exception as e:
-            print(f"创建Milvus集合失败: {str(e)}")
-            return False
-
-    @staticmethod
     async def vectorize_resume(text_content: str, resume_id: int = 0) -> str:
         """将简历内容向量化并存储到Milvus"""
-        if not MILVUS_AVAILABLE:
+        client = MilvusClient()
+        if not client.is_available():
             print("警告: Milvus不可用，跳过向量化")
             return ""
-        
+
         try:
-            # 初始化Milvus
-            if not ResumeService._init_milvus():
-                return ""
-            
-            ResumeService._create_collection_if_not_exists()
-            
-            # 生成embedding
             embeddings = DashScopeEmbeddings(
                 model="text-embedding-v1",
                 dashscope_api_key=os.getenv("DASHSCOPE_API_KEY")
             )
-            
-            # 对文本进行embedding
             embedding = embeddings.embed_query(text_content)
-            
-            # 插入到Milvus
-            collection = Collection(ResumeService.COLLECTION_NAME)
-            
-            entities = [
-                [resume_id],  # resume_id
-                [embedding],  # embedding
-                ["unknown"],  # candidate_name (暂时未知)
-                [""],  # skills
-                [""]  # content_hash
-            ]
-            
-            insert_result = collection.insert(entities)
-            collection.flush()
-            
-            # 返回milvus_id
-            milvus_id = str(insert_result.primary_keys[0])
-            return milvus_id
-            
+            return client.insert(resume_id, embedding)
         except Exception as e:
             print(f"向量化失败: {str(e)}")
-            # 如果Milvus不可用，返回空字符串，不影响主流程
             return ""
 
     @staticmethod
     def delete_milvus_vector(milvus_id: str) -> bool:
         """从Milvus中删除向量"""
-        if not MILVUS_AVAILABLE:
-            print("警告: Milvus不可用，跳过向量删除")
+        client = MilvusClient()
+        if not client.is_available():
             return False
-        
-        try:
-            if not ResumeService._init_milvus():
-                return False
-            
-            collection = Collection(ResumeService.COLLECTION_NAME)
-            collection.delete(f"id == {milvus_id}")
-            collection.flush()
-            print(f"✅ 删除Milvus向量: {milvus_id}")
-            return True
-            
-        except Exception as e:
-            print(f"删除Milvus向量失败: {str(e)}")
+        return client.delete(milvus_id)
+
+    @staticmethod
+    def batch_delete_milvus_vectors(milvus_ids: List[str]) -> bool:
+        """批量从Milvus中删除向量"""
+        client = MilvusClient()
+        if not client.is_available():
             return False
+        return client.batch_delete(milvus_ids)
 
     @staticmethod
     async def process_single_resume(db: Session, file, position_id: int = None) -> Dict[str, Any]:
@@ -445,20 +340,39 @@ class ResumeService:
 
     @staticmethod
     async def process_batch_resumes(db: Session, files: list, position_id: int = None) -> Dict[str, Any]:
-        """批量处理简历上传"""
+        """批量处理简历上传（并发执行，最多 5 路并行）"""
+        from app.db.database import SessionLocal
+
+        # 使用全局信号量控制并发度，避免打爆 DashScope API 限流
+        async def process_one(file):
+            async with BATCH_SEMAPHORE:
+                task_db = SessionLocal()
+                try:
+                    return await ResumeService.process_single_resume(task_db, file, position_id)
+                finally:
+                    task_db.close()
+
+        tasks = [process_one(file) for file in files]
+        raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
         results = []
         success_count = 0
         failed_count = 0
-        
-        for file in files:
-            result = await ResumeService.process_single_resume(db, file, position_id)
-            results.append(result)
-            
-            if result["status"] == "success":
-                success_count += 1
-            else:
+        for i, result in enumerate(raw_results):
+            if isinstance(result, Exception):
                 failed_count += 1
-        
+                results.append({
+                    "file_name": getattr(files[i], "filename", "unknown"),
+                    "status": "failed",
+                    "error": str(result)
+                })
+            else:
+                results.append(result)
+                if result["status"] == "success":
+                    success_count += 1
+                else:
+                    failed_count += 1
+
         return {
             "total": len(files),
             "success": success_count,

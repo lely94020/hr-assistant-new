@@ -3,6 +3,7 @@
 """
 import sys
 import os
+import asyncio
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -11,7 +12,7 @@ from app.services.interview_evaluation_service import generate_interview_evaluat
 from app.crud.interview_evaluation import get_evaluations_by_resume_id
 
 
-def test_generate_evaluation():
+async def test_generate_evaluation():
     """测试生成面试评价"""
     print("=" * 50)
     print("测试：生成面试评价")
@@ -22,7 +23,7 @@ def test_generate_evaluation():
         summary_id = 1
 
         print(f"\n使用摘要ID: {summary_id}")
-        evaluation = generate_interview_evaluation(summary_id, db)
+        evaluation = await generate_interview_evaluation(summary_id, db)
 
         print("\n✓ 评价生成成功！")
         print(f"评价ID: {evaluation['id']}")
@@ -93,7 +94,7 @@ def test_get_evaluation_history(resume_id: int):
 if __name__ == "__main__":
     print("\n开始测试面试评价模块...\n")
 
-    success = test_generate_evaluation()
+    success = asyncio.run(test_generate_evaluation())
 
     if success:
         resume_id = 1

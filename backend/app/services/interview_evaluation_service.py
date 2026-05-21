@@ -28,9 +28,9 @@ EVALUATION_WEIGHTS = {
 }
 
 
-def generate_interview_evaluation(summary_id: int, db: Session) -> Dict[str, Any]:
+async def generate_interview_evaluation(summary_id: int, db: Session) -> Dict[str, Any]:
     """
-    基于面试摘要生成AI评价
+    基于面试摘要生成AI评价（异步）
     :param summary_id: 面试摘要ID
     :param db: 数据库会话
     :return: 生成的评价数据
@@ -49,8 +49,8 @@ def generate_interview_evaluation(summary_id: int, db: Session) -> Dict[str, Any
         position_name = "未知岗位"
         requirements = ""
 
-        # 使用AI生成评价
-        evaluation_data = _generate_evaluation_with_ai(
+        # 使用AI生成评价（异步）
+        evaluation_data = await _generate_evaluation_with_ai(
             candidate_name=resume.candidate_name,
             position_name=position_name,
             requirements=requirements,
@@ -99,7 +99,7 @@ def generate_interview_evaluation(summary_id: int, db: Session) -> Dict[str, Any
         raise
 
 
-def _generate_evaluation_with_ai(
+async def _generate_evaluation_with_ai(
     candidate_name: str,
     position_name: str,
     requirements: str,
@@ -111,7 +111,7 @@ def _generate_evaluation_with_ai(
     concerns: Optional[str]
 ) -> Dict[str, Any]:
     """
-    使用AI生成面试评价
+    使用AI生成面试评价（异步）
     """
     try:
         api_key = settings.DASHSCOPE_API_KEY
@@ -233,7 +233,7 @@ def _generate_evaluation_with_ai(
             concerns=concerns_str
         )
 
-        result = llm.invoke(full_prompt)
+        result = await llm.ainvoke(full_prompt)
         evaluation_json = _extract_json_from_response(result)
 
         if not evaluation_json:

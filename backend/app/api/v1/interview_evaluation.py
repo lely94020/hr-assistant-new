@@ -201,7 +201,7 @@ async def generate_evaluation(
 ):
     """基于面试摘要AI生成面试评价"""
     try:
-        evaluation_data = generate_interview_evaluation(request.summary_id, db)
+        evaluation_data = await generate_interview_evaluation(request.summary_id, db)
         return InterviewEvaluationResponse(**evaluation_data)
 
     except ValueError as e:
